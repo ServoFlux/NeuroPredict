@@ -42,7 +42,7 @@ def _pretty(label: str) -> str:
     return PRETTY_LABELS.get(label, label.replace("_", " ").title())
 
 
-app = FastAPI(title="Early White Matter Disease Detector")
+app = FastAPI(title="NeuroPredict — Early White Matter Disease Risk Prediction")
 app.mount("/static", StaticFiles(directory=str(WEBAPP_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(WEBAPP_DIR / "templates"))
 

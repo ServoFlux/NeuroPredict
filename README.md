@@ -1,4 +1,4 @@
-# Early White Matter Disease Detector
+# NeuroPredict — Early White Matter Disease Risk Prediction from Archive MRI Scans
 
 A research/educational project that predicts **early white matter disease**
 (white matter hyperintensities, WMH) from brain MRI using a **3D CNN**, with a
