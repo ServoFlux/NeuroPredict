@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Data & model artifacts (large / regenerated)
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+
+# Uploads / runtime
+webapp/uploads/
+webapp/static/previews/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

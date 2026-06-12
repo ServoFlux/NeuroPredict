@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <a href="/" class="back-link">&larr; Analyze another scan</a>
+
+    {% if error %}
+    <div class="banner banner-error">{{ error }}</div>
+    {% else %}
+    <h2>Prediction result</h2>
+    <p class="muted">File: <code>{{ filename }}</code></p>
+
+    <div class="result-grid">
+        <div class="result-main {{ 'positive' if result.is_positive else 'negative' }}">
+            <div class="result-label">{{ result.label_pretty }}</div>
+            <div class="result-confidence">{{ result.confidence }}% confidence</div>
+        </div>
+
+        {% if preview_url %}
+        <div class="preview">
+            <img src="{{ preview_url }}" alt="Mid-axial MRI slice preview" />
+            <span class="muted">Mid-axial slice</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <h3>Class probabilities</h3>
+    <ul class="prob-list">
+        {% for name, prob in result.probabilities.items() %}
+        <li>
+            <span class="prob-name">{{ name }}</span>
+            <span class="prob-bar"><span style="width: {{ prob }}%"></span></span>
+            <span class="prob-value">{{ prob }}%</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+{% endblock %}

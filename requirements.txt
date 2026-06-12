@@ -1,0 +1,13 @@
+# Core ML / imaging
+torch>=2.2
+numpy>=1.26
+nibabel>=5.2
+pydicom>=2.4
+scikit-learn>=1.4
+Pillow>=10.0
+
+# Web app
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+jinja2>=3.1
