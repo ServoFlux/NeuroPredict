@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from wmd.config import CLASS_NAMES, PreprocessConfig, TrainConfig  # noqa: E402
 from wmd.dataset import ManifestDataset  # noqa: E402
+from wmd.explain import grad_cam, overlay_cam_on_slice  # noqa: E402
 from wmd.inference import WMDPredictor  # noqa: E402
 from wmd.model import build_model  # noqa: E402
 from wmd.preprocessing import preprocess_volume  # noqa: E402
@@ -62,3 +63,16 @@ def test_train_and_predict(tmp_path: Path) -> None:
     assert pred.label in CLASS_NAMES
     assert 0.0 <= pred.confidence <= 1.0
     assert abs(sum(pred.probabilities.values()) - 1.0) < 1e-4
+
+
+def test_grad_cam_shape_and_range() -> None:
+    model = build_model(num_classes=len(CLASS_NAMES))
+    x = torch.randn(1, 1, 32, 32, 32, requires_grad=True)
+    cam = grad_cam(model, x, class_idx=1)
+    assert cam.shape == (32, 32, 32)
+    assert float(cam.min()) >= 0.0
+    assert float(cam.max()) <= 1.0
+
+    overlay = overlay_cam_on_slice(np.zeros((32, 32)), cam[16])
+    assert overlay.shape == (32, 32, 3)
+    assert overlay.dtype == np.uint8

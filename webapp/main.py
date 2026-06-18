@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from wmd.config import DEFAULT_MODEL_PATH, RESEARCH_DISCLAIMER  # noqa: E402
-from wmd.inference import WMDPredictor, save_preview  # noqa: E402
+from wmd.inference import WMDPredictor  # noqa: E402
 
 WEBAPP_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = WEBAPP_DIR / "uploads"
@@ -89,6 +89,8 @@ async def predict(request: Request, scan: UploadFile = File(...)) -> HTMLRespons
     error: str | None = None
     result = None
     preview_url = None
+    explanation = None
+    overlay_url = None
 
     if predictor is None:
         error = (
@@ -109,9 +111,21 @@ async def predict(request: Request, scan: UploadFile = File(...)) -> HTMLRespons
 
         try:
             prediction = predictor.predict_path(saved_path)
+
             preview_png = PREVIEW_DIR / f"{token}.png"
-            save_preview(saved_path, preview_png)
+            overlay_png = PREVIEW_DIR / f"{token}_cam.png"
+            exp = predictor.explain_path(
+                saved_path, prediction, overlay_png, preview_png
+            )
             preview_url = f"/static/previews/{preview_png.name}"
+            overlay_url = f"/static/previews/{overlay_png.name}"
+            explanation = {
+                "original_shape": "×".join(str(d) for d in exp.original_shape),
+                "processed_shape": "×".join(str(d) for d in exp.processed_shape),
+                "slice_index": exp.slice_index,
+                "attention_pct": round(exp.attention_fraction * 100, 1),
+                "clip_percentiles": predictor.preprocess.clip_percentiles,
+            }
             result = {
                 "label": prediction.label,
                 "label_pretty": _pretty(prediction.label),
@@ -135,6 +149,8 @@ async def predict(request: Request, scan: UploadFile = File(...)) -> HTMLRespons
             "error": error,
             "result": result,
             "preview_url": preview_url,
+            "overlay_url": overlay_url,
+            "explanation": explanation,
             "filename": scan.filename,
         },
     )

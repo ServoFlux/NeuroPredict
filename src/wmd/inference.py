@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from .config import DEFAULT_MODEL_PATH, PreprocessConfig
+from .explain import grad_cam, most_salient_axial_index, overlay_cam_on_slice
 from .model import build_model
 from .preprocessing import load_volume, preprocess_volume
 
@@ -19,6 +20,16 @@ class Prediction:
     label_index: int
     confidence: float
     probabilities: dict[str, float]
+
+
+@dataclass
+class Explanation:
+    """Grad-CAM explanation artifacts for a prediction."""
+
+    original_shape: tuple[int, int, int]
+    processed_shape: tuple[int, int, int]
+    slice_index: int
+    attention_fraction: float  # fraction of the slice the model attends to
 
 
 class WMDPredictor:
@@ -60,6 +71,48 @@ class WMDPredictor:
 
     def predict_path(self, path: str | Path) -> Prediction:
         return self.predict_volume(load_volume(path))
+
+    def explain_path(
+        self,
+        path: str | Path,
+        prediction: Prediction,
+        overlay_png: str | Path,
+        input_png: str | Path,
+    ) -> Explanation:
+        """Compute a Grad-CAM explanation for ``prediction``.
+
+        Saves two images of the *same* (most-salient) slice: the plain input
+        slice (``input_png``) and the Grad-CAM heatmap overlay (``overlay_png``),
+        so users can directly compare what was fed in vs. where the model looked.
+        This turns the model from a black box into something a user can inspect.
+        """
+        from PIL import Image
+
+        volume = load_volume(path)
+        original_shape = tuple(int(d) for d in volume.shape)
+
+        tensor = preprocess_volume(volume, self.preprocess)[None]  # (1, 1, D, H, W)
+        tensor.requires_grad_(True)
+        cam = grad_cam(self.model, tensor, prediction.label_index)
+
+        processed = tensor.detach()[0, 0].numpy()  # normalized, resampled volume
+        z = most_salient_axial_index(cam)
+
+        base = np.clip(processed[z], 0.0, 1.0)
+        input_rgb = (np.stack([base, base, base], axis=-1) * 255).astype(np.uint8)
+        overlay_rgb = overlay_cam_on_slice(base, cam[z])
+
+        for arr, dest in ((input_rgb, input_png), (overlay_rgb, overlay_png)):
+            dest = Path(dest)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(arr).resize((256, 256), Image.NEAREST).save(str(dest))
+
+        return Explanation(
+            original_shape=original_shape,
+            processed_shape=tuple(int(d) for d in processed.shape),
+            slice_index=z,
+            attention_fraction=float((cam[z] > 0.5).mean()),
+        )
 
 
 def save_preview(path: str | Path, out_png: str | Path) -> Path:
