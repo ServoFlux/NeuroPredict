@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <a href="/" class="back-link">&larr; Analyze another scan</a>
+
+    {% if error %}
+    <div class="banner banner-error">{{ error }}</div>
+    {% else %}
+    <h2>Prediction result</h2>
+    <p class="muted">File: <code>{{ filename }}</code></p>
+
+    <div class="result-grid">
+        <div class="result-main {{ 'positive' if result.is_positive else 'negative' }}">
+            <div class="result-label">{{ result.label_pretty }}</div>
+            <div class="result-confidence">{{ result.confidence }}% confidence</div>
+        </div>
+
+        <div class="scan-views">
+            {% if preview_url %}
+            <figure class="preview">
+                <img src="{{ preview_url }}" alt="Mid-axial MRI slice preview" />
+                <figcaption class="muted">Input slice</figcaption>
+            </figure>
+            {% endif %}
+            {% if overlay_url %}
+            <figure class="preview">
+                <img src="{{ overlay_url }}" alt="Grad-CAM attention heatmap" />
+                <figcaption class="muted">Model attention (Grad-CAM)</figcaption>
+            </figure>
+            {% endif %}
+        </div>
+    </div>
+
+    <h3>Class probabilities</h3>
+    <ul class="prob-list">
+        {% for name, prob in result.probabilities.items() %}
+        <li>
+            <span class="prob-name">{{ name }}</span>
+            <span class="prob-bar"><span style="width: {{ prob }}%"></span></span>
+            <span class="prob-value">{{ prob }}%</span>
+        </li>
+        {% endfor %}
+    </ul>
+
+    {% if explanation %}
+    <h3>How this prediction was made</h3>
+    <p class="muted explain-intro">
+        This model is not a black box. Below is the exact pipeline, and the
+        heatmap above shows the brain regions that drove the decision
+        (red&nbsp;=&nbsp;most influential).
+    </p>
+    <ol class="steps">
+        <li><strong>Load scan</strong> — read the uploaded volume
+            (<code>{{ explanation.original_shape }}</code> voxels).</li>
+        <li><strong>Normalize intensity</strong> — robust scaling to [0,&nbsp;1],
+            clipped at the {{ explanation.clip_percentiles[0] }}–{{ explanation.clip_percentiles[1] }}
+            percentiles so bright white-matter hyperintensities are preserved.</li>
+        <li><strong>Resample</strong> — trilinear resize to a fixed
+            <code>{{ explanation.processed_shape }}</code> grid for the network.</li>
+        <li><strong>3D&nbsp;CNN feature extraction</strong> — four Conv3D blocks
+            detect 3D lesion patterns; global max-pooling keeps small focal signals.</li>
+        <li><strong>Classify &amp; explain</strong> — a dense head outputs the
+            probabilities above; Grad-CAM back-projects the decision onto the
+            most influential slice (#{{ explanation.slice_index }},
+            ~{{ explanation.attention_pct }}% of it strongly attended).</li>
+    </ol>
+    {% endif %}
+    {% endif %}
+</section>
+{% endblock %}

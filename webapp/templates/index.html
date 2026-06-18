@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <h2>Upload an MRI scan</h2>
+    <p class="muted">
+        Upload a brain MRI volume (preferably FLAIR) as NIfTI
+        (<code>.nii</code> / <code>.nii.gz</code>) or DICOM (<code>.dcm</code>).
+        The model estimates the likelihood of early white matter disease
+        (white matter hyperintensities).
+    </p>
+
+    {% if not model_loaded %}
+    <div class="banner banner-warn">
+        No trained model is loaded. Run
+        <code>python scripts/train_demo.py</code> and restart the server.
+    </div>
+    {% elif val_metrics %}
+    <div class="banner banner-info">
+        Demo model validation:
+        {% for k, v in val_metrics.items() %}
+            <span class="metric">{{ k }} = {{ "%.3f"|format(v) }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form action="/predict" method="post" enctype="multipart/form-data" class="upload-form">
+        <label class="file-input">
+            <input type="file" name="scan" accept=".nii,.nii.gz,.dcm,.ima" required />
+        </label>
+        <button type="submit" class="btn">Predict</button>
+    </form>
+</section>
+{% endblock %}
