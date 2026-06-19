@@ -13,6 +13,10 @@
         <div class="result-main {{ 'positive' if result.is_positive else 'negative' }}">
             <div class="result-label">{{ result.label_pretty }}</div>
             <div class="result-confidence">{{ result.confidence }}% confidence</div>
+            <div class="result-sub">
+                Overall white matter disease probability:
+                <strong>{{ result.wmd_probability }}%</strong>
+            </div>
         </div>
 
         <div class="scan-views">
@@ -31,7 +35,24 @@
         </div>
     </div>
 
-    <h3>Class probabilities</h3>
+    {% if result.is_positive and result.cause_probs %}
+    <h3>Most likely cause (etiology)</h3>
+    <p class="muted explain-intro">
+        The scan flags white matter disease; the clinical &amp; genomic answers
+        help point to the likely <em>cause</em>. Ranked likelihoods:
+    </p>
+    <ul class="prob-list">
+        {% for c in result.cause_probs %}
+        <li>
+            <span class="prob-name">{{ c.label }}</span>
+            <span class="prob-bar"><span style="width: {{ c.pct }}%"></span></span>
+            <span class="prob-value">{{ c.pct }}%</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <h3>All class probabilities</h3>
     <ul class="prob-list">
         {% for name, prob in result.probabilities.items() %}
         <li>
@@ -41,6 +62,54 @@
         </li>
         {% endfor %}
     </ul>
+
+    {% if attribution %}
+    <h3>What drove this prediction: MRI vs. clinical</h3>
+    <p class="muted explain-intro">
+        The prediction fuses two sources. Starting from a neutral baseline of
+        <strong>{{ attribution.baseline }}%</strong> (blank scan, no conditions,
+        average age), each source moves the early-WMD probability. The bar shows
+        how the total movement splits between them.
+    </p>
+    <div class="contrib-bar">
+        <span class="contrib-img" style="width: {{ attribution.image_share }}%">
+            MRI {{ attribution.image_share }}%
+        </span>
+        <span class="contrib-clin" style="width: {{ attribution.clinical_share }}%">
+            Clinical {{ attribution.clinical_share }}%
+        </span>
+    </div>
+    <ul class="ablation-list">
+        <li><strong>MRI alone</strong> moved it
+            {{ "%+.1f"|format(attribution.image_delta) }} points from baseline.</li>
+        <li><strong>Clinical &amp; genomic answers alone</strong> moved it
+            {{ "%+.1f"|format(attribution.clinical_delta) }} points from baseline.</li>
+        <li><strong>Combined</strong> (both together):
+            <strong>{{ attribution.combined }}%</strong> early-WMD probability.</li>
+    </ul>
+    {% endif %}
+
+    {% if result.next_steps %}
+    <h3>Recommended next steps</h3>
+    <p class="muted explain-intro">
+        General guidance based on this result -- <strong>not medical advice</strong>.
+        Always discuss your scan and symptoms with a qualified clinician.
+    </p>
+    <ul class="steps next-steps">
+        {% for step in result.next_steps %}
+        <li>{{ step }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if answers_summary %}
+    <h3>Clinical answers used</h3>
+    <ul class="answers-list">
+        {% for a in answers_summary %}
+        <li><span class="answer-label">{{ a.label }}</span><span class="answer-value">{{ a.value }}</span></li>
+        {% endfor %}
+    </ul>
+    {% endif %}
 
     {% if explanation %}
     <h3>How this prediction was made</h3>
@@ -59,6 +128,9 @@
             <code>{{ explanation.processed_shape }}</code> grid for the network.</li>
         <li><strong>3D&nbsp;CNN feature extraction</strong> — four Conv3D blocks
             detect 3D lesion patterns; global max-pooling keeps small focal signals.</li>
+        <li><strong>Fuse with clinical data</strong> — the questionnaire answers
+            are encoded and concatenated with the MRI features, so history and
+            symptoms inform the verdict alongside the scan.</li>
         <li><strong>Classify &amp; explain</strong> — a dense head outputs the
             probabilities above; Grad-CAM back-projects the decision onto the
             most influential slice (#{{ explanation.slice_index }},

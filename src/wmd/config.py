@@ -11,9 +11,67 @@ DATA_DIR = PROJECT_ROOT / "data"
 MODELS_DIR = PROJECT_ROOT / "models"
 
 DEFAULT_MODEL_PATH = MODELS_DIR / "wmd_cnn.pt"
+DEFAULT_MULTIMODAL_MODEL_PATH = MODELS_DIR / "wmd_multimodal.pt"
 
-# Class labels (index order matters: it maps to model output logits)
+# Class labels for the image-only binary model (index maps to output logits).
 CLASS_NAMES: tuple[str, ...] = ("no_wmd", "early_wmd")
+
+# Class labels for the multimodal etiology model. Index 0 ("no_wmd") is the
+# healthy class; the rest are the suspected *cause* of white matter disease.
+ETIOLOGY_CLASS_NAMES: tuple[str, ...] = (
+    "no_wmd",
+    "vascular",
+    "autoimmune",
+    "genetic",
+    "metabolic",
+    "infectious",
+)
+
+# Human-readable etiology labels for the UI.
+ETIOLOGY_LABELS: dict[str, str] = {
+    "no_wmd": "No white matter disease",
+    "vascular": "Vascular (small-vessel disease)",
+    "autoimmune": "Autoimmune (e.g. multiple sclerosis)",
+    "genetic": "Genetic (e.g. CADASIL / CARASIL)",
+    "metabolic": "Metabolic (e.g. leukodystrophy, B12 deficiency)",
+    "infectious": "Infectious (e.g. HIV, Lyme, PML)",
+}
+
+# Suggested next steps per prediction. Educational guidance only -- NOT medical
+# advice. Always framed around consulting a qualified clinician.
+ETIOLOGY_NEXT_STEPS: dict[str, list[str]] = {
+    "no_wmd": [
+        "No white matter disease was flagged. This is not a diagnosis -- if you have symptoms, still speak with a doctor.",
+        "Protect brain health: stay active, eat well, don't smoke, and keep blood pressure, blood sugar, and cholesterol in a healthy range.",
+        "Repeat imaging only if a clinician recommends it or new symptoms appear.",
+    ],
+    "vascular": [
+        "Share this result with a primary-care doctor or neurologist.",
+        "Ask about checking and controlling blood pressure, diabetes, and cholesterol -- the main drivers of small-vessel disease.",
+        "Lifestyle steps help: regular exercise, a heart-healthy diet, and stopping smoking.",
+        "A clinician may order follow-up MRI to track changes over time.",
+    ],
+    "autoimmune": [
+        "Ask for a referral to a neurologist to evaluate for an autoimmune cause such as multiple sclerosis.",
+        "Further tests may include a contrast MRI of the brain and spine and, sometimes, a lumbar puncture (spinal fluid test).",
+        "Bring a record of any episodes of vision changes, numbness, weakness, or balance problems.",
+    ],
+    "genetic": [
+        "Consider genetic counseling to discuss inherited small-vessel diseases (e.g. CADASIL/NOTCH3, CARASIL/HTRA1, COL4A1).",
+        "A clinician may recommend genetic testing and screening of close family members.",
+        "Manage stroke risk factors (blood pressure, no smoking) while the workup proceeds.",
+    ],
+    "metabolic": [
+        "See a physician about a metabolic workup -- for example vitamin B12, thyroid, and other blood panels.",
+        "Mention diet, medications, and any known metabolic conditions so reversible causes can be checked.",
+        "Some metabolic causes are treatable, so early evaluation matters.",
+    ],
+    "infectious": [
+        "See a doctor promptly about an infection workup (e.g. HIV, Lyme, or other CNS infections).",
+        "Mention recent infections, travel, tick exposure, or fevers.",
+        "Many infectious causes are treatable when identified early.",
+    ],
+}
 
 
 @dataclass(frozen=True)
