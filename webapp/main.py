@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 # Make the `wmd` package importable when running from the project root.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +30,11 @@ from wmd.config import (  # noqa: E402
     RESEARCH_DISCLAIMER,
 )
 from wmd.inference import MultimodalWMDPredictor  # noqa: E402
+from wmd.risk import (  # noqa: E402
+    Vitals,
+    combined_risk,
+    vascular_risk_score,
+)
 
 WEBAPP_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = WEBAPP_DIR / "uploads"
@@ -64,6 +71,22 @@ def _load_predictor() -> MultimodalWMDPredictor | None:
 
 
 predictor = _load_predictor()
+
+# In-memory IoT state (resets on restart): the latest vitals reading per device
+# and the most recent MRI prediction, used to compute a combined risk.
+_latest_vitals: dict[str, dict] = {}
+_latest_mri: dict[str, object] = {"probability": None, "label_pretty": None, "ts": None}
+
+
+class VitalsIn(BaseModel):
+    """JSON body posted by the ESP32 companion device."""
+
+    device_id: str = "esp32"
+    heart_rate: float | None = None
+    spo2: float | None = None
+    systolic: float | None = None
+    diastolic: float | None = None
+    age: float | None = None
 
 
 def _clinical_groups_for_template() -> list[dict[str, object]]:
@@ -206,6 +229,10 @@ async def predict(request: Request) -> HTMLResponse:
                     prediction.label, ETIOLOGY_NEXT_STEPS["no_wmd"]
                 ),
             }
+            # Record for IoT combined-risk fusion on the /iot dashboard.
+            _latest_mri["probability"] = attr.combined
+            _latest_mri["label_pretty"] = _pretty(prediction.label)
+            _latest_mri["ts"] = time.time()
         except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
             error = f"Could not process this scan: {exc}"
         finally:
@@ -224,6 +251,80 @@ async def predict(request: Request) -> HTMLResponse:
             "attribution": attribution,
             "answers_summary": answers_summary,
             "filename": filename,
+        },
+    )
+
+
+@app.post("/iot/vitals")
+def ingest_vitals(payload: VitalsIn) -> JSONResponse:
+    """Ingest a vitals reading from the ESP32 companion device.
+
+    Computes the vascular-risk score, stores the latest reading for the device,
+    and echoes the score back (handy for an on-device display).
+    """
+    vitals = Vitals(
+        heart_rate=payload.heart_rate,
+        spo2=payload.spo2,
+        systolic=payload.systolic,
+        diastolic=payload.diastolic,
+        age=payload.age,
+    )
+    risk = vascular_risk_score(vitals)
+    _latest_vitals[payload.device_id] = {
+        "vitals": payload.model_dump(),
+        "vascular_score": round(risk.score, 3),
+        "vascular_level": risk.level,
+        "factors": risk.factors,
+        "ts": time.time(),
+    }
+    return JSONResponse(
+        {
+            "ok": True,
+            "device_id": payload.device_id,
+            "vascular_score": round(risk.score, 3),
+            "vascular_level": risk.level,
+            "factors": risk.factors,
+        }
+    )
+
+
+@app.get("/iot", response_class=HTMLResponse)
+def iot_dashboard(request: Request) -> HTMLResponse:
+    """Live dashboard: latest device vitals + combined (MRI + vascular) risk."""
+    devices = []
+    mri_prob = _latest_mri.get("probability")
+    for device_id, entry in sorted(_latest_vitals.items()):
+        combined = None
+        if mri_prob is not None:
+            risk = vascular_risk_score(
+                Vitals(**{
+                    k: entry["vitals"].get(k)
+                    for k in ("heart_rate", "spo2", "systolic", "diastolic", "age")
+                })
+            )
+            fused = combined_risk(float(mri_prob), risk)
+            combined = {
+                "score": round(fused.score * 100, 1),
+                "level": fused.level,
+            }
+        devices.append({
+            "device_id": device_id,
+            "vitals": entry["vitals"],
+            "vascular_score": round(entry["vascular_score"] * 100, 1),
+            "vascular_level": entry["vascular_level"],
+            "factors": entry["factors"],
+            "age_seconds": int(time.time() - entry["ts"]),
+            "combined": combined,
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "iot.html",
+        {
+            "disclaimer": RESEARCH_DISCLAIMER,
+            "devices": devices,
+            "mri": _latest_mri,
+            "mri_pct": round(float(mri_prob) * 100, 1) if mri_prob is not None else None,
         },
     )
 

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <a href="/" class="back-link">&larr; Back to scan upload</a>
+    <h2>IoT vitals dashboard</h2>
+    <p class="muted">
+        Live readings from the ESP32 vascular-sensor companion. Vitals are scored
+        into a vascular-risk level and, when an MRI scan has been analyzed this
+        session, fused with the model's probability into a combined risk.
+        This page refreshes automatically.
+    </p>
+
+    {% if mri_pct is not none %}
+    <div class="banner banner-info">
+        Latest MRI prediction: <strong>{{ mri.label_pretty }}</strong>
+        &mdash; {{ mri_pct }}% probability of early white matter disease.
+    </div>
+    {% else %}
+    <div class="banner banner-warn">
+        No MRI scan analyzed yet this session. Upload one on the
+        <a href="/">home page</a> to enable combined risk.
+    </div>
+    {% endif %}
+
+    {% if not devices %}
+    <p class="muted">
+        No device readings received yet. POST vitals to
+        <code>/iot/vitals</code> (see <code>iot/README.md</code>) or run
+        <code>python iot/simulate_vitals.py</code> to test without hardware.
+    </p>
+    {% else %}
+    {% for d in devices %}
+    <div class="device-card">
+        <h3>Device: <code>{{ d.device_id }}</code>
+            <span class="muted device-age">({{ d.age_seconds }}s ago)</span></h3>
+
+        <div class="vitals-grid">
+            <div class="vital"><span class="vital-val">{{ d.vitals.heart_rate or "--" }}</span><span class="muted">HR (bpm)</span></div>
+            <div class="vital"><span class="vital-val">{{ d.vitals.spo2 or "--" }}</span><span class="muted">SpO&#8322; (%)</span></div>
+            <div class="vital"><span class="vital-val">{{ d.vitals.systolic or "--" }}/{{ d.vitals.diastolic or "--" }}</span><span class="muted">BP (mmHg)</span></div>
+            <div class="vital"><span class="vital-val">{{ d.vitals.age or "--" }}</span><span class="muted">Age</span></div>
+        </div>
+
+        <div class="risk-row">
+            <span class="risk-pill risk-{{ d.vascular_level }}">Vascular risk: {{ d.vascular_level }} ({{ d.vascular_score }}%)</span>
+            {% if d.combined %}
+            <span class="risk-pill risk-{{ d.combined.level }}">Combined risk: {{ d.combined.level }} ({{ d.combined.score }}%)</span>
+            {% endif %}
+        </div>
+
+        <ul class="factor-list">
+            {% for f in d.factors %}<li>{{ f }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+    {% endif %}
+</section>
+<script>
+    // Lightweight auto-refresh so the dashboard tracks incoming readings.
+    setTimeout(function () { window.location.reload(); }, 5000);
+</script>
+{% endblock %}
