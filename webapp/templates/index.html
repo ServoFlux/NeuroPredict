@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card">
-    <h2>Upload an MRI scan</h2>
+    <h2>Predict white matter disease &amp; its likely cause</h2>
     <p class="muted">
-        Upload a brain MRI volume (preferably FLAIR) as NIfTI
-        (<code>.nii</code> / <code>.nii.gz</code>) or DICOM (<code>.dcm</code>).
-        The model estimates the likelihood of early white matter disease
-        (white matter hyperintensities).
+        This is a <strong>multimodal</strong> model: it combines the brain MRI
+        with a short clinical &amp; genomic questionnaire. It predicts whether
+        white matter disease is present and, if so, its likely <em>cause</em> —
+        vascular, autoimmune, genetic, metabolic, or infectious. Upload a scan
+        and answer the questions; the result page shows how much each source
+        contributed and suggests next steps.
     </p>
 
     {% if not model_loaded %}
@@ -24,9 +26,42 @@
     {% endif %}
 
     <form action="/predict" method="post" enctype="multipart/form-data" class="upload-form">
+        <h3 class="form-section-title">1. MRI scan</h3>
+        <p class="muted">
+            Brain MRI volume (preferably FLAIR) as NIfTI
+            (<code>.nii</code> / <code>.nii.gz</code>) or DICOM (<code>.dcm</code>).
+        </p>
         <label class="file-input">
             <input type="file" name="scan" accept=".nii,.nii.gz,.dcm,.ima" required />
         </label>
+
+        <h3 class="form-section-title">2. Clinical &amp; genomic questionnaire</h3>
+        <p class="muted">
+            History, symptoms, and genetic markers associated with small-vessel /
+            white matter disease. Leave blank if unknown.
+        </p>
+        {% for group in clinical_groups %}
+        <fieldset class="q-group">
+            <legend>{{ group.category }}</legend>
+            <div class="questionnaire">
+                {% for field in group.fields %}
+                    {% if field.kind == "age" %}
+                    <div class="q-item q-age">
+                        <label for="{{ field.name }}">{{ field.label }}</label>
+                        <input type="number" id="{{ field.name }}" name="{{ field.name }}"
+                               min="0" max="120" step="1" placeholder="e.g. 68" />
+                    </div>
+                    {% else %}
+                    <label class="q-item q-check">
+                        <input type="checkbox" name="{{ field.name }}" value="1" />
+                        <span>{{ field.label }}</span>
+                    </label>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </fieldset>
+        {% endfor %}
+
         <button type="submit" class="btn">Predict</button>
     </form>
 

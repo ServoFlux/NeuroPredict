@@ -1,4 +1,4 @@
-"""FastAPI web interface for WMD prediction.
+"""FastAPI web interface for WMD prediction (multimodal: MRI + clinical).
 
 Run from the project root:
     uvicorn webapp.main:app --reload --port 8000
@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -22,8 +22,14 @@ from pydantic import BaseModel
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from wmd.config import DEFAULT_MODEL_PATH, RESEARCH_DISCLAIMER  # noqa: E402
-from wmd.inference import WMDPredictor  # noqa: E402
+from wmd.clinical import CATEGORY_ORDER, CLINICAL_FIELDS  # noqa: E402
+from wmd.config import (  # noqa: E402
+    DEFAULT_MULTIMODAL_MODEL_PATH,
+    ETIOLOGY_LABELS,
+    ETIOLOGY_NEXT_STEPS,
+    RESEARCH_DISCLAIMER,
+)
+from wmd.inference import MultimodalWMDPredictor  # noqa: E402
 from wmd.risk import (  # noqa: E402
     Vitals,
     combined_risk,
@@ -42,7 +48,10 @@ ALLOWED_SUFFIXES = (".nii", ".nii.gz", ".dcm", ".ima")
 PRETTY_LABELS = {
     "no_wmd": "No White Matter Disease",
     "early_wmd": "Early White Matter Disease",
+    **ETIOLOGY_LABELS,
 }
+
+_TRUTHY = {"1", "on", "true", "yes"}
 
 
 def _pretty(label: str) -> str:
@@ -54,9 +63,9 @@ app.mount("/static", StaticFiles(directory=str(WEBAPP_DIR / "static")), name="st
 templates = Jinja2Templates(directory=str(WEBAPP_DIR / "templates"))
 
 
-def _load_predictor() -> WMDPredictor | None:
+def _load_predictor() -> MultimodalWMDPredictor | None:
     try:
-        return WMDPredictor(DEFAULT_MODEL_PATH)
+        return MultimodalWMDPredictor(DEFAULT_MULTIMODAL_MODEL_PATH)
     except FileNotFoundError:
         return None
 
@@ -80,6 +89,35 @@ class VitalsIn(BaseModel):
     age: float | None = None
 
 
+def _clinical_groups_for_template() -> list[dict[str, object]]:
+    """Group questionnaire fields by category for rendering."""
+    groups: list[dict[str, object]] = []
+    for category in CATEGORY_ORDER:
+        fields = [
+            {"name": f.name, "label": f.label, "kind": f.kind}
+            for f in CLINICAL_FIELDS
+            if f.category == category
+        ]
+        if fields:
+            groups.append({"category": category, "fields": fields})
+    return groups
+
+
+def _parse_clinical(form: object) -> dict[str, float]:
+    """Build a clinical answer dict from submitted form data."""
+    answers: dict[str, float] = {}
+    for field in CLINICAL_FIELDS:
+        raw = form.get(field.name)  # type: ignore[attr-defined]
+        if field.kind == "age":
+            try:
+                answers[field.name] = float(raw) if raw not in (None, "") else 0.0
+            except (TypeError, ValueError):
+                answers[field.name] = 0.0
+        else:
+            answers[field.name] = 1.0 if str(raw).lower() in _TRUTHY else 0.0
+    return answers
+
+
 def _has_allowed_suffix(filename: str) -> bool:
     name = filename.lower()
     return any(name.endswith(suffix) for suffix in ALLOWED_SUFFIXES)
@@ -90,7 +128,7 @@ def health() -> dict[str, object]:
     return {
         "status": "ok",
         "model_loaded": predictor is not None,
-        "model_path": str(DEFAULT_MODEL_PATH),
+        "model_path": str(DEFAULT_MULTIMODAL_MODEL_PATH),
     }
 
 
@@ -103,42 +141,51 @@ def index(request: Request) -> HTMLResponse:
             "disclaimer": RESEARCH_DISCLAIMER,
             "model_loaded": predictor is not None,
             "val_metrics": predictor.val_metrics if predictor else {},
+            "clinical_groups": _clinical_groups_for_template(),
         },
     )
 
 
 @app.post("/predict", response_class=HTMLResponse)
-async def predict(request: Request, scan: UploadFile = File(...)) -> HTMLResponse:
+async def predict(request: Request) -> HTMLResponse:
     error: str | None = None
     result = None
     preview_url = None
     explanation = None
     overlay_url = None
+    attribution = None
+    answers_summary: list[dict[str, str]] = []
+    filename = None
+
+    form = await request.form()
+    scan = form.get("scan")
+    filename = getattr(scan, "filename", None)
 
     if predictor is None:
         error = (
             "No trained model is available. Run `python scripts/train_demo.py` "
-            "to train the demo model, then restart the server."
+            "to train the demo models, then restart the server."
         )
-    elif not scan.filename or not _has_allowed_suffix(scan.filename):
+    elif scan is None or not filename or not _has_allowed_suffix(filename):
         error = (
             "Unsupported file type. Please upload a NIfTI (.nii/.nii.gz) or "
             "DICOM (.dcm) scan."
         )
     else:
+        answers = _parse_clinical(form)
         token = uuid.uuid4().hex
-        suffix = ".nii.gz" if scan.filename.lower().endswith(".nii.gz") else Path(scan.filename).suffix
+        suffix = ".nii.gz" if filename.lower().endswith(".nii.gz") else Path(filename).suffix
         saved_path = UPLOAD_DIR / f"{token}{suffix}"
         with saved_path.open("wb") as out:
             shutil.copyfileobj(scan.file, out)
 
         try:
-            prediction = predictor.predict_path(saved_path)
+            prediction, attr = predictor.predict_path(saved_path, answers)
 
             preview_png = PREVIEW_DIR / f"{token}.png"
             overlay_png = PREVIEW_DIR / f"{token}_cam.png"
             exp = predictor.explain_path(
-                saved_path, prediction, overlay_png, preview_png
+                saved_path, answers, prediction, overlay_png, preview_png
             )
             preview_url = f"/static/previews/{preview_png.name}"
             overlay_url = f"/static/previews/{overlay_png.name}"
@@ -149,18 +196,41 @@ async def predict(request: Request, scan: UploadFile = File(...)) -> HTMLRespons
                 "attention_pct": round(exp.attention_fraction * 100, 1),
                 "clip_percentiles": predictor.preprocess.clip_percentiles,
             }
+            attribution = {
+                "combined": round(attr.combined * 100, 1),
+                "baseline": round(attr.baseline * 100, 1),
+                "image_delta": round(attr.image_delta * 100, 1),
+                "clinical_delta": round(attr.clinical_delta * 100, 1),
+                "image_share": round(attr.image_share * 100),
+                "clinical_share": round(attr.clinical_share * 100),
+            }
+            answers_summary = _summarize_answers(answers)
+            is_positive = prediction.label != "no_wmd"
+            cause_probs = [
+                {"label": _pretty(name), "pct": round(p * 100, 1)}
+                for name, p in sorted(
+                    prediction.probabilities.items(),
+                    key=lambda kv: kv[1], reverse=True,
+                )
+                if name != "no_wmd"
+            ]
             result = {
                 "label": prediction.label,
                 "label_pretty": _pretty(prediction.label),
                 "confidence": round(prediction.confidence * 100, 1),
+                "wmd_probability": round(attr.combined * 100, 1),
                 "probabilities": {
                     _pretty(name): round(p * 100, 1)
                     for name, p in prediction.probabilities.items()
                 },
-                "is_positive": prediction.label_index == 1,
+                "cause_probs": cause_probs,
+                "is_positive": is_positive,
+                "next_steps": ETIOLOGY_NEXT_STEPS.get(
+                    prediction.label, ETIOLOGY_NEXT_STEPS["no_wmd"]
+                ),
             }
             # Record for IoT combined-risk fusion on the /iot dashboard.
-            _latest_mri["probability"] = prediction.probabilities.get("early_wmd")
+            _latest_mri["probability"] = attr.combined
             _latest_mri["label_pretty"] = _pretty(prediction.label)
             _latest_mri["ts"] = time.time()
         except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
@@ -178,7 +248,9 @@ async def predict(request: Request, scan: UploadFile = File(...)) -> HTMLRespons
             "preview_url": preview_url,
             "overlay_url": overlay_url,
             "explanation": explanation,
-            "filename": scan.filename,
+            "attribution": attribution,
+            "answers_summary": answers_summary,
+            "filename": filename,
         },
     )
 
@@ -255,3 +327,16 @@ def iot_dashboard(request: Request) -> HTMLResponse:
             "mri_pct": round(float(mri_prob) * 100, 1) if mri_prob is not None else None,
         },
     )
+
+
+def _summarize_answers(answers: dict[str, float]) -> list[dict[str, str]]:
+    """Human-readable summary of the questionnaire for the result page."""
+    summary: list[dict[str, str]] = []
+    for field in CLINICAL_FIELDS:
+        val = answers.get(field.name, 0.0)
+        if field.kind == "age":
+            display = f"{int(val)}" if val else "—"
+        else:
+            display = "Yes" if val >= 0.5 else "No"
+        summary.append({"label": field.label, "value": display})
+    return summary
