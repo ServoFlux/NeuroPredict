@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <a href="/" class="back-link">&larr; Back to scan upload</a>
+    <h2>Archive MRI digitizer</h2>
+    <p class="muted">
+        Many older studies only exist as <strong>physical film</strong> — a sheet
+        printed with a grid of slice images. The Archive Digitizer companion
+        (an ESP32-CAM over a light box) photographs that sheet; the server
+        rebuilds the slices into the 3D volume this website already uses, then
+        runs the normal prediction. The hardware simply <em>helps the website get
+        its input</em> — it doesn't change the model.
+    </p>
+
+    {% if not model_loaded %}
+    <div class="banner banner-warn">
+        No trained model is loaded. Run
+        <code>python scripts/train_demo.py</code> and restart the server.
+    </div>
+    {% endif %}
+
+    {% if latest and latest.label_pretty %}
+    <div class="banner banner-info">
+        Last digitized capture:
+        <span class="metric">{{ latest.label_pretty }}</span>
+        <span class="metric">WMD {{ latest.wmd_pct }}%</span>
+    </div>
+    {% endif %}
+
+    <form action="/digitizer" method="post" enctype="multipart/form-data" class="upload-form">
+        <h3 class="form-section-title">1. Photo of the film sheet</h3>
+        <p class="muted">
+            A photo (PNG/JPEG) of the printed slice grid. For the demo you can
+            generate one with <code>python iot/simulate_digitizer.py --save sheet.png</code>.
+        </p>
+        <label class="file-input">
+            <input type="file" name="sheet" accept="image/*" required />
+        </label>
+
+        <div class="questionnaire" style="margin-top: 0.8rem;">
+            <div class="q-item q-age">
+                <label for="cols">Slices per row (grid columns)</label>
+                <input type="number" id="cols" name="cols" min="1" max="20" step="1" value="8" />
+            </div>
+            <div class="q-item q-age">
+                <label for="depth">Number of slices to keep</label>
+                <input type="number" id="depth" name="depth" min="1" max="400" step="1" value="64" />
+            </div>
+        </div>
+
+        <h3 class="form-section-title">2. Clinical &amp; genomic questionnaire</h3>
+        <p class="muted">Optional — same questions as the main scan flow. Leave blank if unknown.</p>
+        {% for group in clinical_groups %}
+        <fieldset class="q-group">
+            <legend>{{ group.category }}</legend>
+            <div class="questionnaire">
+                {% for field in group.fields %}
+                    {% if field.kind == "age" %}
+                    <div class="q-item q-age">
+                        <label for="d_{{ field.name }}">{{ field.label }}</label>
+                        <input type="number" id="d_{{ field.name }}" name="{{ field.name }}"
+                               min="0" max="120" step="1" placeholder="e.g. 68" />
+                    </div>
+                    {% else %}
+                    <label class="q-item q-check">
+                        <input type="checkbox" name="{{ field.name }}" value="1" />
+                        <span>{{ field.label }}</span>
+                    </label>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </fieldset>
+        {% endfor %}
+
+        <button type="submit" class="btn">Digitize &amp; predict</button>
+    </form>
+</section>
+{% endblock %}
