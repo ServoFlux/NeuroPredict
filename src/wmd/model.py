@@ -55,11 +55,80 @@ class WMDClassifier3D(nn.Module):
             nn.Linear(32, num_classes),
         )
 
+    def embed(self, x: torch.Tensor) -> torch.Tensor:
+        """Return the pooled image feature embedding (batch, 64)."""
+        x = self.features(x)
+        x = self.pool(x)
+        return torch.flatten(x, 1)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.features(x)
         x = self.pool(x)
         return self.classifier(x)
 
 
+IMAGE_EMBED_DIM = 64
+
+
+class MultimodalWMDClassifier(nn.Module):
+    """Fuses the 3D-CNN image embedding with clinical questionnaire features.
+
+    Late-fusion: the MRI volume is encoded into a 64-d embedding, the clinical
+    vector through a small MLP, and the two are concatenated before a shared head
+    produces the final logits. The image and clinical branches can be ablated
+    independently (by zeroing one input) to attribute the prediction.
+    """
+
+    def __init__(
+        self,
+        num_clinical_features: int,
+        num_classes: int = 2,
+        in_channels: int = 1,
+        clinical_embed_dim: int = 16,
+    ) -> None:
+        super().__init__()
+        self.num_classes = num_classes
+        self.num_clinical_features = num_clinical_features
+
+        self.features = nn.Sequential(
+            ConvBlock(in_channels, 8),
+            ConvBlock(8, 16),
+            ConvBlock(16, 32),
+            ConvBlock(32, 64),
+        )
+        self.pool = nn.AdaptiveMaxPool3d(1)
+
+        self.clinical_encoder = nn.Sequential(
+            nn.Linear(num_clinical_features, clinical_embed_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(clinical_embed_dim, clinical_embed_dim),
+            nn.ReLU(inplace=True),
+        )
+
+        self.head = nn.Sequential(
+            nn.Dropout(0.3),
+            nn.Linear(IMAGE_EMBED_DIM + clinical_embed_dim, 32),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, num_classes),
+        )
+
+    def image_embedding(self, volume: torch.Tensor) -> torch.Tensor:
+        return torch.flatten(self.pool(self.features(volume)), 1)
+
+    def forward(self, volume: torch.Tensor, clinical: torch.Tensor) -> torch.Tensor:
+        img = self.image_embedding(volume)
+        clin = self.clinical_encoder(clinical)
+        fused = torch.cat([img, clin], dim=1)
+        return self.head(fused)
+
+
 def build_model(num_classes: int = 2) -> WMDClassifier3D:
     return WMDClassifier3D(num_classes=num_classes)
+
+
+def build_multimodal_model(
+    num_clinical_features: int, num_classes: int = 2
+) -> MultimodalWMDClassifier:
+    return MultimodalWMDClassifier(
+        num_clinical_features=num_clinical_features, num_classes=num_classes
+    )

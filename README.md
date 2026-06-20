@@ -1,8 +1,11 @@
 # NeuroPredict — Early White Matter Disease Risk Prediction from Archive MRI Scans
 
-A research/educational project that predicts **early white matter disease**
-(white matter hyperintensities, WMH) from brain MRI using a **3D CNN**, with a
-**FastAPI web interface** for uploading a scan and getting a prediction.
+A research/educational project that predicts **white matter disease** (white
+matter hyperintensities, WMH) from brain MRI and, when present, its likely
+**cause (etiology)** — vascular, autoimmune, genetic, metabolic, or infectious.
+It uses a **multimodal model** that fuses a **3D CNN** over the MRI with a short
+**clinical & genomic questionnaire**, exposed through a **FastAPI web
+interface**.
 
 > ⚠️ **Disclaimer:** This is NOT a medical device and must NOT be used for
 > diagnosis or any clinical decision. It is for research and learning only.
@@ -13,10 +16,16 @@ A research/educational project that predicts **early white matter disease**
 
 1. **Preprocess** an MRI volume (NIfTI or DICOM) → robust intensity
    normalization → resample to a fixed shape.
-2. **Classify** the volume with a compact 3D CNN
-   (`no_wmd` vs `early_wmd`).
-3. **Serve** predictions through a web app: upload a scan, see the predicted
-   class, confidence, per-class probabilities, and a mid-slice preview.
+2. **Encode** a short clinical & genomic questionnaire (history, symptoms, and
+   genetic markers) into a feature vector.
+3. **Fuse & classify** with a multimodal model: a 3D CNN over the MRI plus a
+   small MLP over the questionnaire, combined in a shared head. It predicts one
+   of `no_wmd`, `vascular`, `autoimmune`, `genetic`, `metabolic`, `infectious`.
+   (An image-only `no_wmd`/`early_wmd` CNN is also trained as a baseline.)
+4. **Serve** predictions through a web app: upload a scan, answer the
+   questionnaire, and see the predicted cause, the overall WMD probability, a
+   per-modality contribution breakdown (MRI vs. clinical), a Grad-CAM heatmap,
+   and suggested next steps.
 
 The repo ships with a **synthetic data generator** and a **demo training
 script** so the entire pipeline runs end-to-end without any gated data. You can
