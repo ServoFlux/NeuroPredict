@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
 
+import numpy as np
+import nibabel as nib
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -27,6 +30,7 @@ from wmd.config import (  # noqa: E402
     ETIOLOGY_NEXT_STEPS,
     RESEARCH_DISCLAIMER,
 )
+from wmd.filmscan import grid_shape_for_depth, volume_from_contact_sheet  # noqa: E402
 from wmd.inference import MultimodalWMDPredictor  # noqa: E402
 
 WEBAPP_DIR = Path(__file__).resolve().parent
@@ -36,6 +40,11 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_SUFFIXES = (".nii", ".nii.gz", ".dcm", ".ima")
+FILM_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+# Latest digitized film result, surfaced on the /digitizer dashboard so a device
+# capture is visible without a browser upload. Resets on restart.
+_latest_digitized: dict[str, object] = {"label_pretty": None, "wmd_pct": None, "ts": None}
 
 # Human-friendly display names for the model's class labels.
 PRETTY_LABELS = {
@@ -100,6 +109,18 @@ def _has_allowed_suffix(filename: str) -> bool:
     return any(name.endswith(suffix) for suffix in ALLOWED_SUFFIXES)
 
 
+def _has_film_suffix(filename: str) -> bool:
+    name = filename.lower()
+    return any(name.endswith(suffix) for suffix in FILM_SUFFIXES)
+
+
+def _parse_int(raw: object, default: int) -> int:
+    try:
+        return int(float(str(raw)))
+    except (TypeError, ValueError):
+        return default
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     return {
@@ -119,112 +140,246 @@ def index(request: Request) -> HTMLResponse:
             "model_loaded": predictor is not None,
             "val_metrics": predictor.val_metrics if predictor else {},
             "clinical_groups": _clinical_groups_for_template(),
+            "latest_digitized": _latest_digitized,
         },
     )
 
 
+def _empty_context(filename: str | None = None) -> dict[str, object]:
+    return {
+        "disclaimer": RESEARCH_DISCLAIMER,
+        "error": None,
+        "result": None,
+        "preview_url": None,
+        "overlay_url": None,
+        "explanation": None,
+        "attribution": None,
+        "answers_summary": [],
+        "filename": filename,
+    }
+
+
+def _run_prediction(
+    saved_path: Path, answers: dict[str, float], filename: str, token: str
+) -> dict[str, object]:
+    """Predict + explain a saved volume and build the result template context.
+
+    Shared by the standard scan-upload flow and the Archive Digitizer flow so
+    both render the identical result page (probabilities, Grad-CAM, next steps).
+    """
+    ctx = _empty_context(filename)
+    if predictor is None:
+        ctx["error"] = (
+            "No trained model is available. Run `python scripts/train_demo.py` "
+            "to train the demo models, then restart the server."
+        )
+        return ctx
+
+    prediction, attr = predictor.predict_path(saved_path, answers)
+
+    preview_png = PREVIEW_DIR / f"{token}.png"
+    overlay_png = PREVIEW_DIR / f"{token}_cam.png"
+    exp = predictor.explain_path(
+        saved_path, answers, prediction, overlay_png, preview_png
+    )
+    ctx["preview_url"] = f"/static/previews/{preview_png.name}"
+    ctx["overlay_url"] = f"/static/previews/{overlay_png.name}"
+    ctx["explanation"] = {
+        "original_shape": "×".join(str(d) for d in exp.original_shape),
+        "processed_shape": "×".join(str(d) for d in exp.processed_shape),
+        "slice_index": exp.slice_index,
+        "attention_pct": round(exp.attention_fraction * 100, 1),
+        "clip_percentiles": predictor.preprocess.clip_percentiles,
+    }
+    ctx["attribution"] = {
+        "combined": round(attr.combined * 100, 1),
+        "baseline": round(attr.baseline * 100, 1),
+        "image_delta": round(attr.image_delta * 100, 1),
+        "clinical_delta": round(attr.clinical_delta * 100, 1),
+        "image_share": round(attr.image_share * 100),
+        "clinical_share": round(attr.clinical_share * 100),
+    }
+    ctx["answers_summary"] = _summarize_answers(answers)
+    is_positive = prediction.label != "no_wmd"
+    cause_probs = [
+        {"label": _pretty(name), "pct": round(p * 100, 1)}
+        for name, p in sorted(
+            prediction.probabilities.items(),
+            key=lambda kv: kv[1], reverse=True,
+        )
+        if name != "no_wmd"
+    ]
+    ctx["result"] = {
+        "label": prediction.label,
+        "label_pretty": _pretty(prediction.label),
+        "confidence": round(prediction.confidence * 100, 1),
+        "wmd_probability": round(attr.combined * 100, 1),
+        "probabilities": {
+            _pretty(name): round(p * 100, 1)
+            for name, p in prediction.probabilities.items()
+        },
+        "cause_probs": cause_probs,
+        "is_positive": is_positive,
+        "next_steps": ETIOLOGY_NEXT_STEPS.get(
+            prediction.label, ETIOLOGY_NEXT_STEPS["no_wmd"]
+        ),
+    }
+    _latest_digitized.update(
+        label_pretty=ctx["result"]["label_pretty"],
+        wmd_pct=ctx["result"]["wmd_probability"],
+    )
+    return ctx
+
+
+def _film_to_volume_path(
+    image_path: Path, token: str, cols: int, depth: int
+) -> Path:
+    """Reconstruct a NIfTI volume from a photographed film sheet on disk."""
+    rows, cols = grid_shape_for_depth(depth, cols)
+    volume = volume_from_contact_sheet(image_path, rows=rows, cols=cols, depth=depth)
+    nii_path = UPLOAD_DIR / f"{token}.nii.gz"
+    nib.save(nib.Nifti1Image(volume.astype(np.float32), affine=np.eye(4)), str(nii_path))
+    return nii_path
+
+
 @app.post("/predict", response_class=HTMLResponse)
 async def predict(request: Request) -> HTMLResponse:
-    error: str | None = None
-    result = None
-    preview_url = None
-    explanation = None
-    overlay_url = None
-    attribution = None
-    answers_summary: list[dict[str, str]] = []
-    filename = None
-
     form = await request.form()
     scan = form.get("scan")
     filename = getattr(scan, "filename", None)
 
-    if predictor is None:
-        error = (
-            "No trained model is available. Run `python scripts/train_demo.py` "
-            "to train the demo models, then restart the server."
-        )
-    elif scan is None or not filename or not _has_allowed_suffix(filename):
-        error = (
+    if scan is None or not filename or not _has_allowed_suffix(filename):
+        ctx = _empty_context(filename)
+        ctx["error"] = (
             "Unsupported file type. Please upload a NIfTI (.nii/.nii.gz) or "
             "DICOM (.dcm) scan."
         )
-    else:
-        answers = _parse_clinical(form)
-        token = uuid.uuid4().hex
-        suffix = ".nii.gz" if filename.lower().endswith(".nii.gz") else Path(filename).suffix
-        saved_path = UPLOAD_DIR / f"{token}{suffix}"
-        with saved_path.open("wb") as out:
-            shutil.copyfileobj(scan.file, out)
+        return templates.TemplateResponse(request, "result.html", ctx)
 
-        try:
-            prediction, attr = predictor.predict_path(saved_path, answers)
+    answers = _parse_clinical(form)
+    token = uuid.uuid4().hex
+    suffix = ".nii.gz" if filename.lower().endswith(".nii.gz") else Path(filename).suffix
+    saved_path = UPLOAD_DIR / f"{token}{suffix}"
+    with saved_path.open("wb") as out:
+        shutil.copyfileobj(scan.file, out)
 
-            preview_png = PREVIEW_DIR / f"{token}.png"
-            overlay_png = PREVIEW_DIR / f"{token}_cam.png"
-            exp = predictor.explain_path(
-                saved_path, answers, prediction, overlay_png, preview_png
-            )
-            preview_url = f"/static/previews/{preview_png.name}"
-            overlay_url = f"/static/previews/{overlay_png.name}"
-            explanation = {
-                "original_shape": "×".join(str(d) for d in exp.original_shape),
-                "processed_shape": "×".join(str(d) for d in exp.processed_shape),
-                "slice_index": exp.slice_index,
-                "attention_pct": round(exp.attention_fraction * 100, 1),
-                "clip_percentiles": predictor.preprocess.clip_percentiles,
-            }
-            attribution = {
-                "combined": round(attr.combined * 100, 1),
-                "baseline": round(attr.baseline * 100, 1),
-                "image_delta": round(attr.image_delta * 100, 1),
-                "clinical_delta": round(attr.clinical_delta * 100, 1),
-                "image_share": round(attr.image_share * 100),
-                "clinical_share": round(attr.clinical_share * 100),
-            }
-            answers_summary = _summarize_answers(answers)
-            is_positive = prediction.label != "no_wmd"
-            cause_probs = [
-                {"label": _pretty(name), "pct": round(p * 100, 1)}
-                for name, p in sorted(
-                    prediction.probabilities.items(),
-                    key=lambda kv: kv[1], reverse=True,
-                )
-                if name != "no_wmd"
-            ]
-            result = {
-                "label": prediction.label,
-                "label_pretty": _pretty(prediction.label),
-                "confidence": round(prediction.confidence * 100, 1),
-                "wmd_probability": round(attr.combined * 100, 1),
-                "probabilities": {
-                    _pretty(name): round(p * 100, 1)
-                    for name, p in prediction.probabilities.items()
-                },
-                "cause_probs": cause_probs,
-                "is_positive": is_positive,
-                "next_steps": ETIOLOGY_NEXT_STEPS.get(
-                    prediction.label, ETIOLOGY_NEXT_STEPS["no_wmd"]
-                ),
-            }
-        except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
-            error = f"Could not process this scan: {exc}"
-        finally:
-            saved_path.unlink(missing_ok=True)
+    try:
+        ctx = _run_prediction(saved_path, answers, filename, token)
+    except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
+        ctx = _empty_context(filename)
+        ctx["error"] = f"Could not process this scan: {exc}"
+    finally:
+        saved_path.unlink(missing_ok=True)
 
+    return templates.TemplateResponse(request, "result.html", ctx)
+
+
+@app.get("/digitizer", response_class=HTMLResponse)
+def digitizer(request: Request) -> HTMLResponse:
+    """Archive MRI digitizer: photograph a film sheet -> reconstruct -> predict."""
     return templates.TemplateResponse(
         request,
-        "result.html",
+        "digitizer.html",
         {
             "disclaimer": RESEARCH_DISCLAIMER,
-            "error": error,
-            "result": result,
-            "preview_url": preview_url,
-            "overlay_url": overlay_url,
-            "explanation": explanation,
-            "attribution": attribution,
-            "answers_summary": answers_summary,
-            "filename": filename,
+            "model_loaded": predictor is not None,
+            "clinical_groups": _clinical_groups_for_template(),
+            "latest": _latest_digitized,
         },
+    )
+
+
+@app.post("/digitizer", response_class=HTMLResponse)
+async def digitizer_submit(request: Request) -> HTMLResponse:
+    """Browser flow: upload a photo of a film sheet and run the prediction."""
+    form = await request.form()
+    sheet = form.get("sheet")
+    filename = getattr(sheet, "filename", None)
+
+    if sheet is None or not filename or not _has_film_suffix(filename):
+        ctx = _empty_context(filename)
+        ctx["error"] = (
+            "Please upload a photo of the film sheet (PNG/JPEG)."
+        )
+        return templates.TemplateResponse(request, "result.html", ctx)
+
+    answers = _parse_clinical(form)
+    cols = _parse_int(form.get("cols"), default=8)
+    depth = _parse_int(form.get("depth"), default=64)
+    token = uuid.uuid4().hex
+    photo_path = UPLOAD_DIR / f"{token}{Path(filename).suffix.lower()}"
+    with photo_path.open("wb") as out:
+        shutil.copyfileobj(sheet.file, out)
+
+    nii_path: Path | None = None
+    try:
+        nii_path = _film_to_volume_path(photo_path, token, cols, depth)
+        ctx = _run_prediction(nii_path, answers, f"{filename} (digitized film)", token)
+    except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
+        ctx = _empty_context(filename)
+        ctx["error"] = f"Could not reconstruct this film sheet: {exc}"
+    finally:
+        photo_path.unlink(missing_ok=True)
+        if nii_path is not None:
+            nii_path.unlink(missing_ok=True)
+
+    return templates.TemplateResponse(request, "result.html", ctx)
+
+
+@app.post("/ingest/film")
+async def ingest_film(request: Request) -> JSONResponse:
+    """Device endpoint: the ESP32-CAM POSTs a film-sheet photo (+ grid info).
+
+    Reconstructs the volume and returns the prediction as JSON, so the device
+    can show a result and the /digitizer dashboard can reflect the latest capture.
+    """
+    if predictor is None:
+        return JSONResponse({"ok": False, "error": "model not loaded"}, status_code=503)
+
+    form = await request.form()
+    sheet = form.get("sheet")
+    filename = getattr(sheet, "filename", None)
+    if sheet is None or not filename or not _has_film_suffix(filename):
+        return JSONResponse(
+            {"ok": False, "error": "missing film image (field 'sheet')"},
+            status_code=400,
+        )
+
+    answers = _parse_clinical(form)
+    cols = _parse_int(form.get("cols"), default=8)
+    depth = _parse_int(form.get("depth"), default=64)
+    token = uuid.uuid4().hex
+    photo_path = UPLOAD_DIR / f"{token}{Path(filename).suffix.lower()}"
+    with photo_path.open("wb") as out:
+        shutil.copyfileobj(sheet.file, out)
+
+    nii_path: Path | None = None
+    try:
+        nii_path = _film_to_volume_path(photo_path, token, cols, depth)
+        prediction, attr = predictor.predict_path(nii_path, answers)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    finally:
+        photo_path.unlink(missing_ok=True)
+        if nii_path is not None:
+            nii_path.unlink(missing_ok=True)
+
+    wmd_pct = round(attr.combined * 100, 1)
+    _latest_digitized.update(
+        label_pretty=_pretty(prediction.label), wmd_pct=wmd_pct, ts=time.time()
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "label": prediction.label,
+            "label_pretty": _pretty(prediction.label),
+            "confidence": round(prediction.confidence * 100, 1),
+            "wmd_probability": wmd_pct,
+            "probabilities": {
+                name: round(p * 100, 1)
+                for name, p in prediction.probabilities.items()
+            },
+        }
     )
 
 
