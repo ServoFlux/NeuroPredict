@@ -40,7 +40,35 @@ python iot/simulate_digitizer.py --etiology vascular --save sheet.png --no-post
 
 The latest digitized result also shows up at `http://localhost:8000/digitizer`.
 
-## Parts list (~$45–70)
+## Which board?
+
+Two firmwares are included — pick the board you bought:
+
+| | **Seeed XIAO ESP32-S3 Sense** (recommended) | **AI-Thinker ESP32-CAM** |
+| --- | --- | --- |
+| Firmware | `xiao_esp32s3_digitizer.ino` | `esp32cam_digitizer.ino` |
+| Flashing | **USB-C, no extra hardware** | needs an FTDI adapter + GPIO0 jumper |
+| PSRAM | 8MB (high-res capture) | varies |
+| Price | ~$15–20 | ~$10 |
+| Best for | first build / ease of use | lowest cost |
+
+The rest of this guide covers the recommended **XIAO** path; the ESP32-CAM
+wiring/flashing notes follow at the end.
+
+## Parts list — XIAO ESP32-S3 Sense (~$40–60)
+
+| Part | Search term | Notes |
+| --- | --- | --- |
+| Seeed XIAO ESP32-S3 Sense | `Seeed Studio XIAO ESP32S3 Sense` | OV2640 camera + WiFi + 8MB PSRAM, USB-C |
+| USB-C cable | `USB-C cable` | power + flashing (skip if you have one) |
+| Push button | `momentary push button switch kit` | capture trigger (D1/GPIO2 → GND) |
+| LED light box / tracing pad (A4) | `A4 LED tracing light box pad` | even backlight so the film is readable |
+| Camera stand / arm | `phone gooseneck clamp mount stand` | holds the camera over the film |
+| Jumper wires (female-female) | `female to female jumper wires` | for the button |
+
+No FTDI adapter and no Raspberry Pi are needed for this build.
+
+### Legacy parts list — AI-Thinker ESP32-CAM (~$45–70)
 
 | Part | Notes |
 | --- | --- |
@@ -51,7 +79,34 @@ The latest digitized result also shows up at `http://localhost:8000/digitizer`.
 | Stand / arm to hold the camera over the film | 3D-printed or any phone arm |
 | 5V power supply (stable) | the camera browns out on weak USB |
 
-## Wiring
+## Wiring (XIAO ESP32-S3 Sense)
+
+Only one external connection is needed — the button. The film is lit by your
+LED light box, and power/flashing both go over the single USB-C cable.
+
+| XIAO pin | Connect to |
+| --- | --- |
+| **D1 (GPIO2)** | one leg of the push button |
+| **GND** | the other leg of the push button |
+| USB-C | your computer (flashing) or a USB charger (standalone use) |
+
+The on-board user LED (GPIO21) blinks while a photo is captured. Make sure the
+camera module is seated in the board's B2B connector and the antenna is attached.
+
+## Flashing (XIAO ESP32-S3 Sense — USB-C, no FTDI)
+
+1. In Arduino IDE, install the **ESP32 board package** (Boards Manager →
+   "esp32" by Espressif), then select board **XIAO_ESP32S3** and set
+   **PSRAM: OPI PSRAM** under Tools.
+2. Open `xiao_esp32s3_digitizer.ino` and set `WIFI_SSID`, `WIFI_PASS`, and
+   `SERVER_URL` (e.g. `http://<your-computer-ip>:8000/ingest/film`).
+3. Set `SHEET_COLS` and `SHEET_DEPTH` to match how your film is laid out.
+4. Plug the board into your computer with USB-C and click **Upload**.
+   - If upload doesn't start, put the board in bootloader mode: hold **BOOT**,
+     tap **RESET**, release **BOOT** (or just double-tap **RESET**), then upload.
+5. Open Serial Monitor (115200 baud) to see the WiFi IP and upload responses.
+
+## Wiring & flashing (legacy AI-Thinker ESP32-CAM)
 
 | ESP32-CAM | Connect to |
 | --- | --- |
@@ -59,8 +114,6 @@ The latest digitized result also shows up at `http://localhost:8000/digitizer`.
 | GPIO4 | on-board flash LED (already wired) — lights the film during capture |
 | 5V / GND | stable 5V supply |
 | U0T / U0R / GND / 5V + GPIO0→GND | FTDI adapter (GPIO0 to GND **only while flashing**) |
-
-## Flashing
 
 1. Install the **ESP32 board package** in Arduino IDE and select
    **AI Thinker ESP32-CAM**.
