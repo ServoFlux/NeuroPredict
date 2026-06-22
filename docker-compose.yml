@@ -1,0 +1,11 @@
+# Run NeuroPredict with one command:
+#
+#   docker compose up --build
+#
+# Then open http://localhost:8000
+services:
+  neuropredict:
+    build: .
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
