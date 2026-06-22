@@ -30,14 +30,17 @@
     </div>
     {% endif %}
 
-    <form action="/predict" method="post" enctype="multipart/form-data" class="upload-form">
+    <form action="/predict" method="post" enctype="multipart/form-data" class="upload-form" data-loading>
         <h3 class="form-section-title">1. MRI scan</h3>
         <p class="muted">
             Brain MRI volume (preferably FLAIR) as NIfTI
             (<code>.nii</code> / <code>.nii.gz</code>) or DICOM (<code>.dcm</code>).
         </p>
-        <label class="file-input">
+        <label class="dropzone">
             <input type="file" name="scan" accept=".nii,.nii.gz,.dcm,.ima" required />
+            <span class="dropzone-icon" aria-hidden="true">📂</span>
+            <span class="dropzone-text">Drag a scan here, or <strong>click to browse</strong></span>
+            <span class="dropzone-file" data-empty="No file selected yet"></span>
         </label>
 
         <h3 class="form-section-title">2. Clinical &amp; genomic questionnaire</h3>
@@ -67,7 +70,13 @@
         </fieldset>
         {% endfor %}
 
-        <button type="submit" class="btn">Predict</button>
+        <button type="submit" class="btn" data-loading-label="Analyzing scan…">
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="btn-label">Predict</span>
+        </button>
     </form>
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/app.js"></script>
 {% endblock %}

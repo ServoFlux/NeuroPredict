@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card">
-    <a href="/" class="back-link">&larr; Back to scan upload</a>
     <h2>Archive MRI digitizer</h2>
     <p class="muted">
         Many older studies only exist as <strong>physical film</strong> — a sheet
@@ -27,14 +26,17 @@
     </div>
     {% endif %}
 
-    <form action="/digitizer" method="post" enctype="multipart/form-data" class="upload-form">
+    <form action="/digitizer" method="post" enctype="multipart/form-data" class="upload-form" data-loading>
         <h3 class="form-section-title">1. Photo of the film sheet</h3>
         <p class="muted">
             A photo (PNG/JPEG) of the printed slice grid. For the demo you can
             generate one with <code>python iot/simulate_digitizer.py --save sheet.png</code>.
         </p>
-        <label class="file-input">
+        <label class="dropzone">
             <input type="file" name="sheet" accept="image/*" required />
+            <span class="dropzone-icon" aria-hidden="true">🎞️</span>
+            <span class="dropzone-text">Drag a film photo here, or <strong>click to browse</strong></span>
+            <span class="dropzone-file" data-empty="No photo selected yet"></span>
         </label>
 
         <div class="questionnaire" style="margin-top: 0.8rem;">
@@ -72,7 +74,13 @@
         </fieldset>
         {% endfor %}
 
-        <button type="submit" class="btn">Digitize &amp; predict</button>
+        <button type="submit" class="btn" data-loading-label="Digitizing &amp; analyzing…">
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="btn-label">Digitize &amp; predict</span>
+        </button>
     </form>
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/app.js"></script>
 {% endblock %}
