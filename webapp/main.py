@@ -80,7 +80,7 @@ def _clinical_groups_for_template() -> list[dict[str, object]]:
     groups: list[dict[str, object]] = []
     for category in CATEGORY_ORDER:
         fields = [
-            {"name": f.name, "label": f.label, "kind": f.kind}
+            {"name": f.name, "label": f.label, "kind": f.kind, "help": f.help}
             for f in CLINICAL_FIELDS
             if f.category == category
         ]

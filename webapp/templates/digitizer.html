@@ -49,23 +49,46 @@
         </div>
 
         <h3 class="form-section-title">2. Clinical &amp; genomic questionnaire</h3>
-        <p class="muted">Optional — same questions as the main scan flow. Leave blank if unknown.</p>
+        <p class="muted">
+            Optional — same questions as the main scan flow. Hover (or tap) the
+            <span class="help-icon" tabindex="0" role="img"
+            aria-label="example help icon">i</span> for a plain-language
+            explanation. Leave blank if unknown.
+        </p>
         {% for group in clinical_groups %}
         <fieldset class="q-group">
             <legend>{{ group.category }}</legend>
+            {% if group.category == "Genomic" %}
+            <p class="muted q-group-note">
+                These come from a DNA / genetic test. If the patient has never had
+                genetic testing, leave them unchecked.
+            </p>
+            {% endif %}
             <div class="questionnaire">
                 {% for field in group.fields %}
                     {% if field.kind == "age" %}
                     <div class="q-item q-age">
                         <label for="d_{{ field.name }}">{{ field.label }}</label>
+                        {% if field.help %}
+                        <span class="help-icon" tabindex="0" role="img"
+                              aria-label="{{ field.help }}"
+                              data-tooltip="{{ field.help }}">i</span>
+                        {% endif %}
                         <input type="number" id="d_{{ field.name }}" name="{{ field.name }}"
                                min="0" max="120" step="1" placeholder="e.g. 68" />
                     </div>
                     {% else %}
-                    <label class="q-item q-check">
-                        <input type="checkbox" name="{{ field.name }}" value="1" />
-                        <span>{{ field.label }}</span>
-                    </label>
+                    <div class="q-item q-check">
+                        <label>
+                            <input type="checkbox" name="{{ field.name }}" value="1" />
+                            <span>{{ field.label }}</span>
+                        </label>
+                        {% if field.help %}
+                        <span class="help-icon" tabindex="0" role="img"
+                              aria-label="{{ field.help }}"
+                              data-tooltip="{{ field.help }}">i</span>
+                        {% endif %}
+                    </div>
                     {% endif %}
                 {% endfor %}
             </div>
