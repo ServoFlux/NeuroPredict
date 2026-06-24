@@ -31,6 +31,7 @@ class ClinicalField:
     label: str  # human-readable question for the UI
     kind: str  # "binary" or "age"
     category: str = "History"  # UI grouping
+    help: str = ""  # plain-language explanation shown as a tooltip in the UI
 
 
 # Order in which categories are rendered in the UI.
@@ -38,31 +39,97 @@ CATEGORY_ORDER: tuple[str, ...] = ("Demographics", "History", "Symptoms", "Genom
 
 # Order matters: it defines the feature-vector layout and must stay stable.
 CLINICAL_FIELDS: tuple[ClinicalField, ...] = (
-    ClinicalField("age", "Age (years)", "age", "Demographics"),
+    ClinicalField(
+        "age", "Age (years)", "age", "Demographics",
+        help="The patient's age in years. White matter disease becomes more common with age, so this is one of the strongest clues.",
+    ),
     # --- Medical history / risk factors ---
-    ClinicalField("hypertension", "High blood pressure (hypertension)", "binary", "History"),
-    ClinicalField("diabetes", "Diabetes", "binary", "History"),
-    ClinicalField("prior_stroke", "Prior stroke or TIA", "binary", "History"),
-    ClinicalField("smoking", "Current or former smoker", "binary", "History"),
-    ClinicalField("high_cholesterol", "High cholesterol", "binary", "History"),
-    ClinicalField("autoimmune_history", "Diagnosed autoimmune disease (e.g. MS, lupus)", "binary", "History"),
-    ClinicalField("recent_cns_infection", "Recent / chronic CNS infection (e.g. HIV, Lyme)", "binary", "History"),
-    ClinicalField("metabolic_disorder", "Known metabolic disorder (e.g. B12 deficiency, leukodystrophy)", "binary", "History"),
+    ClinicalField(
+        "hypertension", "High blood pressure (hypertension)", "binary", "History",
+        help="Has a doctor said the patient has high blood pressure, or are they on blood-pressure medication? High blood pressure slowly damages the brain's small blood vessels.",
+    ),
+    ClinicalField(
+        "diabetes", "Diabetes", "binary", "History",
+        help="Has the patient been diagnosed with diabetes (high blood sugar)? Diabetes can damage small blood vessels, including those in the brain.",
+    ),
+    ClinicalField(
+        "prior_stroke", "Prior stroke or TIA", "binary", "History",
+        help="Has the patient ever had a stroke or a 'mini-stroke' (TIA) — sudden weakness, slurred speech, or vision loss, even if it went away within a day?",
+    ),
+    ClinicalField(
+        "smoking", "Current or former smoker", "binary", "History",
+        help="Does the patient smoke now, or did they smoke in the past? Smoking harms blood vessels and raises stroke risk.",
+    ),
+    ClinicalField(
+        "high_cholesterol", "High cholesterol", "binary", "History",
+        help="Has a doctor said the patient has high cholesterol, or are they on a cholesterol medication (e.g. a statin)? High cholesterol can clog blood vessels.",
+    ),
+    ClinicalField(
+        "autoimmune_history", "Diagnosed autoimmune disease (e.g. MS, lupus)", "binary", "History",
+        help="An autoimmune disease is when the immune system attacks the body's own tissue. Multiple sclerosis (MS) and lupus are examples that can affect the brain's white matter.",
+    ),
+    ClinicalField(
+        "recent_cns_infection", "Recent / chronic CNS infection (e.g. HIV, Lyme)", "binary", "History",
+        help="Has the patient had an infection that affects the brain or nervous system — for example HIV, Lyme disease, or a serious brain/spinal infection?",
+    ),
+    ClinicalField(
+        "metabolic_disorder", "Known metabolic disorder (e.g. B12 deficiency, leukodystrophy)", "binary", "History",
+        help="A metabolic disorder is a problem with how the body processes nutrients or chemicals — e.g. severe vitamin B12 deficiency, or an inherited condition called leukodystrophy.",
+    ),
     # --- Symptoms ---
-    ClinicalField("memory_problems", "Memory problems", "binary", "Symptoms"),
-    ClinicalField("slow_gait", "Slow walking / gait changes", "binary", "Symptoms"),
-    ClinicalField("balance_problems", "Balance problems / falls", "binary", "Symptoms"),
-    ClinicalField("poor_concentration", "Reduced concentration / performance", "binary", "Symptoms"),
-    ClinicalField("low_mood", "Low mood / depression", "binary", "Symptoms"),
-    ClinicalField("urinary_incontinence", "Urinary incontinence", "binary", "Symptoms"),
+    ClinicalField(
+        "memory_problems", "Memory problems", "binary", "Symptoms",
+        help="Does the patient have trouble remembering recent events, names, or appointments — more than normal forgetfulness?",
+    ),
+    ClinicalField(
+        "slow_gait", "Slow walking / gait changes", "binary", "Symptoms",
+        help="Has the patient's walking become slower, shorter-stepped, or shuffling? White matter disease can affect the brain's movement pathways.",
+    ),
+    ClinicalField(
+        "balance_problems", "Balance problems / falls", "binary", "Symptoms",
+        help="Does the patient feel unsteady, lose their balance, or fall more often than before?",
+    ),
+    ClinicalField(
+        "poor_concentration", "Reduced concentration / performance", "binary", "Symptoms",
+        help="Does the patient have trouble focusing, thinking clearly, or keeping up with tasks at work or school?",
+    ),
+    ClinicalField(
+        "low_mood", "Low mood / depression", "binary", "Symptoms",
+        help="Has the patient felt persistently sad, down, or depressed? Mood changes can accompany white matter disease.",
+    ),
+    ClinicalField(
+        "urinary_incontinence", "Urinary incontinence", "binary", "Symptoms",
+        help="Does the patient have trouble controlling their bladder (leaking urine or sudden urges)? This can be a sign when brain pathways are affected.",
+    ),
     # --- Genomic markers ---
-    ClinicalField("apoe4_carrier", "APOE \u03b54 carrier", "binary", "Genomic"),
-    ClinicalField("notch3_variant", "NOTCH3 pathogenic variant (CADASIL)", "binary", "Genomic"),
-    ClinicalField("htra1_variant", "HTRA1 variant (CARASIL / small-vessel disease)", "binary", "Genomic"),
-    ClinicalField("col4a1_variant", "COL4A1 / COL4A2 variant", "binary", "Genomic"),
-    ClinicalField("mthfr_677tt", "MTHFR C677T homozygous (TT genotype)", "binary", "Genomic"),
-    ClinicalField("family_history_stroke", "Family history of stroke / vascular dementia", "binary", "Genomic"),
-    ClinicalField("high_wmh_prs", "Elevated white-matter-hyperintensity polygenic risk score", "binary", "Genomic"),
+    ClinicalField(
+        "apoe4_carrier", "APOE \u03b54 carrier", "binary", "Genomic",
+        help="A version of the APOE gene that raises the risk of Alzheimer's and vascular brain disease. You only know this from a DNA/genetic test — leave it unchecked if the patient has never had one.",
+    ),
+    ClinicalField(
+        "notch3_variant", "NOTCH3 pathogenic variant (CADASIL)", "binary", "Genomic",
+        help="A change in the NOTCH3 gene that causes CADASIL, an inherited disease of the brain's small blood vessels. Known only from genetic testing — leave unchecked if untested.",
+    ),
+    ClinicalField(
+        "htra1_variant", "HTRA1 variant (CARASIL / small-vessel disease)", "binary", "Genomic",
+        help="A change in the HTRA1 gene linked to an inherited small-vessel brain disease (CARASIL). Known only from genetic testing — leave unchecked if untested.",
+    ),
+    ClinicalField(
+        "col4a1_variant", "COL4A1 / COL4A2 variant", "binary", "Genomic",
+        help="A gene change that weakens small blood vessel walls in the brain, raising the risk of bleeds and white matter damage. Known only from genetic testing — leave unchecked if untested.",
+    ),
+    ClinicalField(
+        "mthfr_677tt", "MTHFR C677T homozygous (TT genotype)", "binary", "Genomic",
+        help="A common gene variant (the 'TT' version) that can raise homocysteine, a chemical weakly linked to vascular risk. Known only from genetic testing — leave unchecked if untested.",
+    ),
+    ClinicalField(
+        "family_history_stroke", "Family history of stroke / vascular dementia", "binary", "Genomic",
+        help="Did a close blood relative (parent, sibling) have a stroke or vascular dementia? This hints at an inherited risk and doesn't need a genetic test.",
+    ),
+    ClinicalField(
+        "high_wmh_prs", "Elevated white-matter-hyperintensity polygenic risk score", "binary", "Genomic",
+        help="A 'polygenic risk score' adds up many tiny genetic effects into one risk number; a high score means inherited risk for white matter disease. Comes from a genetic analysis — leave unchecked if untested.",
+    ),
 )
 
 NUM_CLINICAL_FEATURES = len(CLINICAL_FIELDS)
