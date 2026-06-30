@@ -6,6 +6,7 @@ Run from the project root:
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import time
@@ -28,6 +29,7 @@ from wmd.config import (  # noqa: E402
     DEFAULT_MULTIMODAL_MODEL_PATH,
     ETIOLOGY_LABELS,
     ETIOLOGY_NEXT_STEPS,
+    MODELS_DIR,
     RESEARCH_DISCLAIMER,
 )
 from wmd.filmscan import grid_shape_for_depth, volume_from_contact_sheet  # noqa: E402
@@ -141,6 +143,65 @@ def index(request: Request) -> HTMLResponse:
             "val_metrics": predictor.val_metrics if predictor else {},
             "clinical_groups": _clinical_groups_for_template(),
             "latest_digitized": _latest_digitized,
+        },
+    )
+
+
+PERFORMANCE_PATH = MODELS_DIR / "performance.json"
+
+
+def _matrix_for_template(report: dict[str, object]) -> dict[str, object]:
+    """Annotate a confusion matrix with display helpers (shading, totals)."""
+    matrix = report["confusion_matrix"]
+    class_names = report["class_names"]
+    pretty = [_pretty(name) for name in class_names]
+    peak = max((max(row) for row in matrix), default=0) or 1
+    rows = []
+    for i, row in enumerate(matrix):
+        cells = []
+        row_total = sum(row)
+        for j, count in enumerate(row):
+            cells.append(
+                {
+                    "count": count,
+                    "is_diagonal": i == j,
+                    # 0..1 colour intensity, kept faint at the low end so small
+                    # counts stay visible against the dark theme.
+                    "intensity": round(count / peak, 3) if count else 0.0,
+                }
+            )
+        rows.append({"label": pretty[i], "cells": cells, "total": row_total})
+    return {
+        "task": report["task"],
+        "labels": pretty,
+        "rows": rows,
+        "n_samples": report["n_samples"],
+        "metrics": report["metrics"],
+    }
+
+
+def _load_performance() -> dict[str, object] | None:
+    if not PERFORMANCE_PATH.exists():
+        return None
+    try:
+        report = json.loads(PERFORMANCE_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    return {
+        "note": report.get("note"),
+        "detection": _matrix_for_template(report["detection"]),
+        "etiology": _matrix_for_template(report["etiology"]),
+    }
+
+
+@app.get("/performance", response_class=HTMLResponse)
+def performance(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "performance.html",
+        {
+            "disclaimer": RESEARCH_DISCLAIMER,
+            "performance": _load_performance(),
         },
     )
 

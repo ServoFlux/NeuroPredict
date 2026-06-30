@@ -23,6 +23,8 @@ from wmd.config import (  # noqa: E402
 from wmd.synthetic import generate_dataset  # noqa: E402
 from wmd.train import train, train_multimodal  # noqa: E402
 
+from evaluate_demo import main as evaluate_demo  # noqa: E402
+
 
 def main() -> None:
     synthetic_dir = DATA_DIR / "synthetic"
@@ -44,6 +46,9 @@ def main() -> None:
         manifest, config=config, model_path=DEFAULT_MULTIMODAL_MODEL_PATH
     )
     print(f"Multimodal validation metrics: {mm_metrics}")
+
+    print("\n== Evaluating on a held-out test set (for the /performance page) ==")
+    evaluate_demo()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,94 @@
+{
+  "note": "Metrics computed on a freshly generated synthetic test set the models never saw during training. Synthetic data is a stand-in for real MRI, so these numbers demonstrate the pipeline rather than clinical performance.",
+  "detection": {
+    "task": "Detection (white matter disease: yes / no)",
+    "class_names": [
+      "no_wmd",
+      "early_wmd"
+    ],
+    "confusion_matrix": [
+      [
+        40,
+        0
+      ],
+      [
+        0,
+        200
+      ]
+    ],
+    "n_samples": 240,
+    "metrics": {
+      "accuracy": 1.0,
+      "sensitivity": 1.0,
+      "specificity": 1.0,
+      "roc_auc": 1.0
+    }
+  },
+  "etiology": {
+    "task": "Cause / etiology (5 causes + healthy)",
+    "class_names": [
+      "no_wmd",
+      "vascular",
+      "autoimmune",
+      "genetic",
+      "metabolic",
+      "infectious"
+    ],
+    "confusion_matrix": [
+      [
+        40,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        34,
+        0,
+        0,
+        6,
+        0
+      ],
+      [
+        0,
+        1,
+        37,
+        0,
+        1,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        40,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        40,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        1,
+        1,
+        38
+      ]
+    ],
+    "n_samples": 240,
+    "metrics": {
+      "accuracy": 0.9541666666666667,
+      "roc_auc_macro": 0.9952291666666667
+    }
+  },
+  "test_seed": 1234
+}

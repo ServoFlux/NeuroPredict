@@ -406,6 +406,32 @@ This is where the empty network from `model.py` actually *learns* from the data 
 saving config alongside weights are all real-ML-engineering practices, not
 shortcuts.
 
+## `src/wmd/evaluate.py` — measuring how good the model really is
+
+Training tells you how the model does on *its own* data; this file measures it on
+a **held-out test set** — scans the model has never seen — so the numbers are
+honest. It produces a **confusion matrix** and the metrics that come from it.
+
+- A **confusion matrix** is a grid: each row is the *true* answer, each column is
+  what the model *predicted*. The diagonal (predicted = true) is correct;
+  everything off the diagonal is a specific kind of mistake. For detection it's a
+  2×2 grid (disease yes/no); for the cause model it's a 6×6 grid (healthy + the
+  five causes).
+- **`evaluate_detection`** loads the image-only checkpoint, runs it over every
+  scan in the test manifest, and uses scikit-learn's `confusion_matrix` to tally
+  the grid. From that grid `_binary_metrics` derives **accuracy** (fraction
+  correct), **sensitivity** (of the truly sick, how many we caught = TP/(TP+FN)),
+  **specificity** (of the truly healthy, how many we cleared = TN/(TN+FP)), plus
+  **ROC-AUC**.
+- **`evaluate_etiology`** does the same for the multimodal cause model, reporting
+  accuracy and a multi-class **macro ROC-AUC**.
+- **`build_performance_report`** bundles both into one JSON-friendly dict (with a
+  plain-English honesty note about the synthetic data), which the web app reads.
+
+**Judge point:** sensitivity and specificity *both* matter in medicine — a test
+that calls everyone sick has perfect sensitivity but is useless. The confusion
+matrix shows exactly which causes the model mixes up, not just a single score.
+
 ---
 
 # PART E — Inference (making a live prediction)
@@ -568,6 +594,13 @@ result. It's the glue connecting all the other files.
   deployment/monitoring.
 - **`/`** (133–145) — renders the main upload page with the disclaimer, validation
   metrics, grouped questions, and latest digitized result.
+- **`/performance`** + `_load_performance` / `_matrix_for_template` — reads the
+  precomputed `models/performance.json` (written by `scripts/evaluate_demo.py`)
+  and prepares it for display. `_matrix_for_template` annotates every cell with a
+  0–1 colour **intensity** (count ÷ the matrix's largest count) so the template
+  can shade the confusion matrix — darker = more cases — using a pure-CSS
+  background, no charting library. If the JSON is missing it shows a friendly
+  "run the eval script" banner instead of crashing.
 - **`_empty_context`** (148–159) — a blank result-page context, reused everywhere.
 
 ### `_run_prediction` (162–231) — the shared engine
@@ -627,9 +660,15 @@ type, processed under `try/except` so a bad file can't crash the server, and
 These use **Jinja2** — HTML with `{{ values }}` and `{% logic %}` filled in by the
 server. `{% extends %}` and `{% block %}` let pages share one layout.
 
-- **`base.html`** — the shared shell: page `<head>`, the header/title, the
+- **`base.html`** — the shared shell: page `<head>`, the header/title, a **nav
+  bar** (Predict / Archive digitizer / Model performance), the
   `{% block content %}` placeholder each page fills, and the footer **disclaimer**.
-  Every page inherits this, so the disclaimer is impossible to forget.
+  Every page inherits this, so the nav and disclaimer are on every page.
+- **`performance.html`** — the model-performance page. For each model it shows
+  metric cards (accuracy, ROC-AUC, sensitivity, specificity) and the **confusion
+  matrix** as an HTML table whose cells are colour-shaded by the per-cell
+  `intensity` value (green diagonal = correct, blue off-diagonal = mistakes). The
+  `title=` on each cell spells out "X predicted as Y: N" on hover.
 - **`index.html`** — the home page. Explains the multimodal model, links to the
   digitizer, shows a warning banner if no model is loaded or the validation metrics
   if it is, then the upload form: a file input (33–41) and the questionnaire
@@ -670,6 +709,13 @@ regenerates synthetic data **with** clinical columns and per-cause classes (33�
 then trains **both** models (the image-only CNN and the multimodal model) and
 prints their validation metrics. After this runs, the website has trained models to
 serve.
+
+## `scripts/evaluate_demo.py`
+Generates the honest numbers for the **Model performance** page. It builds a
+**fresh** synthetic test set using a *different* random seed (1234) than training
+(42) — so the models have genuinely never seen it — runs both models through
+`wmd.evaluate.build_performance_report`, and writes the confusion matrices and
+metrics to `models/performance.json`. Re-run it whenever you retrain.
 
 ## `tests/` — automated checks (run with `pytest`)
 These are fast "smoke tests" that prove each piece works without needing a GPU or

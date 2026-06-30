@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+{% set metric_labels = {
+    "accuracy": "Accuracy",
+    "roc_auc": "ROC-AUC",
+    "roc_auc_macro": "ROC-AUC (macro)",
+    "sensitivity": "Sensitivity",
+    "specificity": "Specificity"
+} %}
+<section class="card">
+    <h2>Model performance</h2>
+    {% if not performance %}
+    <div class="banner banner-warn">
+        No performance report found. Run
+        <code>python scripts/evaluate_demo.py</code> to generate
+        <code>models/performance.json</code>, then reload this page.
+    </div>
+    {% else %}
+    <p class="muted">
+        These results are measured on a <strong>held-out test set</strong> — data
+        the models never saw during training. Each <em>confusion matrix</em> below
+        compares the model's prediction (columns) against the true label (rows):
+        the diagonal is correct, everything off the diagonal is a mistake.
+    </p>
+    {% if performance.note %}
+    <div class="banner banner-info">{{ performance.note }}</div>
+    {% endif %}
+
+    {% for key in ["detection", "etiology"] %}
+    {% set model = performance[key] %}
+    <div class="perf-block">
+        <h3>{{ model.task }}</h3>
+
+        <div class="metric-cards">
+            {% for mkey, mval in model.metrics.items() %}
+            <div class="metric-card">
+                <span class="metric-card-value">{{ "%.3f"|format(mval) }}</span>
+                <span class="metric-card-label">{{ metric_labels.get(mkey, mkey) }}</span>
+            </div>
+            {% endfor %}
+            <div class="metric-card metric-card-muted">
+                <span class="metric-card-value">{{ model.n_samples }}</span>
+                <span class="metric-card-label">Test scans</span>
+            </div>
+        </div>
+
+        <div class="cm-wrap">
+            <table class="confusion-matrix">
+                <thead>
+                    <tr>
+                        <th class="cm-corner"></th>
+                        <th class="cm-axis cm-axis-pred" colspan="{{ model.labels|length }}">Predicted</th>
+                    </tr>
+                    <tr>
+                        <th class="cm-corner">Actual</th>
+                        {% for label in model.labels %}
+                        <th class="cm-collabel">{{ label }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in model.rows %}
+                    <tr>
+                        <th class="cm-rowlabel">{{ row.label }}</th>
+                        {% for cell in row.cells %}
+                        <td class="cm-cell{% if cell.is_diagonal %} cm-diag{% endif %}"
+                            style="--intensity: {{ cell.intensity }};"
+                            title="{{ row.label }} predicted as {{ model.labels[loop.index0] }}: {{ cell.count }}">
+                            {{ cell.count }}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</section>
+{% endblock %}
