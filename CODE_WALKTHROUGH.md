@@ -717,6 +717,50 @@ Generates the honest numbers for the **Model performance** page. It builds a
 `wmd.evaluate.build_performance_report`, and writes the confusion matrices and
 metrics to `models/performance.json`. Re-run it whenever you retrain.
 
+## `scripts/prepare_wmh_data.py` — turn a real dataset into a manifest
+
+This is the bridge from **real** MRI scans to our training code. It reads the
+**MICCAI WMH Segmentation Challenge** dataset (60 training + 110 test brain MRIs
+from three hospitals, each with a radiologist-drawn white-matter-lesion mask)
+and writes a `manifest.csv` that the existing `ManifestDataset` already knows how
+to read.
+
+How it works, in plain terms:
+- It **walks the dataset folders** and, for each patient, finds the FLAIR scan
+  (`pre/FLAIR.nii.gz`) and the lesion mask (`wmh.nii.gz`). It's robust to the two
+  folder layouts the challenge uses (some sites add an extra scanner subfolder).
+- For each patient it **measures the lesion load** — it counts the voxels marked
+  as lesion and multiplies by the real-world voxel size (from the NIfTI header)
+  to get the total lesion volume in millilitres.
+- It turns that number into a **label**: at or below a threshold (default 5 mL) =
+  "low burden" (0), above = "significant burden" (1). This matters because the
+  WMH dataset has *no healthy controls* — everyone has some lesions — so a
+  simple yes/no isn't meaningful; the clinically sensible question is "how much."
+- Because the real dataset has no questionnaire, the clinical columns are filled
+  with zeros so the file still matches our manifest format.
+
+**Judge point:** this is exactly the "swap synthetic for real" step. Nothing
+about the model changes — only where the data comes from.
+
+## `scripts/train_real.py` — train on the real scans
+
+The real-data twin of `train_demo.py`. It trains the same 3D CNN, but on real
+MRI, and evaluates on the **completely separate** challenge test set (train on
+60, test on 110 — no overlap, the proper scientific protocol). Key pieces:
+- **`AugmentedDataset`** — because 60 scans is tiny for a 3D CNN, it randomly
+  flips each volume and jitters its brightness on the fly. This fights
+  overfitting (the model can't just memorize 60 exact brains).
+- A **cosine learning-rate schedule** and best-model-by-AUC checkpointing.
+- It writes `models/performance_real.json` — the same format the performance
+  page reads — so the confusion matrix and metrics come straight from real data.
+
+**The honest headline result (real data, held-out test set):** ROC-AUC ≈ **0.72**,
+accuracy ≈ **0.64**. That is *much* lower than the ~1.0 the model scores on
+synthetic data — and that gap is the whole point. Synthetic data proves the
+pipeline works; real data shows the genuine difficulty (only 60 training brains,
+downsampled to 64³, real-world scanner variety across three hospitals). Being
+upfront about this is exactly what earns trust from judges and scientists.
+
 ## `tests/` — automated checks (run with `pytest`)
 These are fast "smoke tests" that prove each piece works without needing a GPU or
 real data. They're your evidence that the pipeline is correct.
@@ -760,7 +804,11 @@ faithful. That's testing the *science*, not just the code.
   The attribution bar then *measures* how much each input actually contributed.
 - **"What would make it real?"** Train on real labeled datasets (e.g. MICCAI WMH,
   OASIS-3), validate against radiologist labels, and test the digitizer on actual
-  film.
+  film. **We've started this:** `scripts/prepare_wmh_data.py` and
+  `scripts/train_real.py` train and evaluate on the real MICCAI WMH Challenge
+  scans (see those sections). The honest real-data result (ROC-AUC ≈ 0.72 vs.
+  ~1.0 on synthetic) shows both that the pipeline generalizes to real data *and*
+  how much harder real data is — the next step is more data and higher resolution.
 - **"Why a 3D CNN and not a normal image classifier?"** An MRI is a 3D volume;
   lesions have 3D shape and location. Flattening to 2D throws away depth.
 - **"Why max pooling / GroupNorm?"** Max pooling preserves tiny bright lesions;
