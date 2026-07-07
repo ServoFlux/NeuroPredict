@@ -770,6 +770,47 @@ faithful. That's testing the *science*, not just the code.
   document this and recommend the native-scan upload for cause; the digitizer is
   best for the disease yes/no call.
 
+## `neuropredict_all_in_one.py` — the whole project condensed into one file
+
+The main project is split across many small files (one job each) because that is
+how real software is kept maintainable. But for reading or explaining the project
+in one sitting, this single file re-creates the **entire software pipeline** in
+one place, top to bottom, in about 800 lines. Nothing in the main project is
+removed — this is an *added*, self-contained copy you can read start to finish.
+
+It is organized as nine numbered sections that mirror the rest of this
+walkthrough:
+
+1. **Configuration** — the class names, the five causes, the human-readable
+   labels, the next-step guidance, and the training settings.
+2. **Questionnaire** — the same clinical/genomic questions, the per-cause
+   synthetic profiles, and `encode_clinical` (answers → numbers).
+3. **Synthetic MRI generator** — builds an ellipsoid "brain" and adds
+   cause-specific bright blobs (the stand-in for white matter lesions).
+4. **Models** — the `ConvBlock`, the image-only `WMDClassifier3D`, and the
+   `MultimodalWMDClassifier` that fuses the MRI embedding with the questionnaire.
+5. **Grad-CAM** — hooks the last conv layer to produce the "where did it look?"
+   heatmap.
+6. **Training + evaluation** — trains both models on a train/val split and then
+   scores them on a **fresh held-out test set** (a different random seed, so the
+   models have never seen it). `_report` builds the **confusion matrix** and
+   derives accuracy, sensitivity, specificity, and ROC-AUC from it.
+7. **Inference** — the `Predictor` loads the trained weights and predicts
+   detection + cause + Grad-CAM for one patient; it can also read an uploaded
+   NIfTI file.
+8. **Web app** — a FastAPI app that renders the prediction form and the
+   **Model-Performance page** (the confusion matrices are drawn as color-shaded
+   HTML tables — green diagonal for correct, blue for mistakes). It exposes an
+   `app` object so it deploys to Hugging Face Spaces exactly like the main app.
+9. **Command line** — `python neuropredict_all_in_one.py train` trains and prints
+   the confusion matrix in the terminal; `serve` launches the website.
+
+Because everything lives in one file, you can trace a single scan from raw
+synthetic volume → 3D CNN → fused cause prediction → confusion matrix → web page
+without jumping between modules. The trade-off (and why the real project is *not*
+written this way) is that one giant file is harder to test and reuse in pieces —
+so keep this as the "read it all at once" companion to the modular `src/` code.
+
 ---
 
 *This walkthrough covers every software file in the repository. The IoT hardware
