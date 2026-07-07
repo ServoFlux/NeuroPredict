@@ -1,0 +1,27 @@
+{
+  "note": "Metrics computed on the MICCAI WMH Challenge test set (110 real brain MRI scans with radiologist-labeled white matter hyperintensities from 3 hospitals). The model was trained on the challenge training set (60 scans) and evaluated on this completely separate test set. Binary labels: WMH volume <= 5 mL = 'low burden' (0), > 5 mL = 'significant burden' (1). Data: Kuijf et al., NeuroImage 2019, doi:10.34894/AECRSD.",
+  "detection": {
+    "task": "Detection (WMH burden: low vs. significant, threshold 5 mL)",
+    "class_names": [
+      "no_wmd",
+      "early_wmd"
+    ],
+    "confusion_matrix": [
+      [
+        24,
+        17
+      ],
+      [
+        23,
+        46
+      ]
+    ],
+    "n_samples": 110,
+    "metrics": {
+      "accuracy": 0.6363636363636364,
+      "roc_auc": 0.7158006362672322,
+      "sensitivity": 0.6666666666666666,
+      "specificity": 0.5853658536585366
+    }
+  }
+}
