@@ -248,9 +248,48 @@ makes them uniform before the AI sees them.
   rescales to roughly 0–1. Guards against a flat/blank scan (avoids divide-by-zero).
 - **`resample_to_shape`** (116–124) — trilinearly resizes any volume to the fixed
   64×64×64 cube (`F.interpolate`). Trilinear = smooth 3D interpolation.
-- **`preprocess_volume`** (127–137) — the full chain: normalize → resample → add a
-  channel dimension, returning a `(1, D, H, W)` tensor.
-- **`load_and_preprocess`** (140–145) — convenience: do both load and preprocess.
+- **`median_filter_3d`** — removes **salt-and-pepper noise** (see below), an
+  optional denoising step controlled by `PreprocessConfig.denoise_median_size`.
+- **`preprocess_volume`** — the full chain: normalize → *(optional denoise)* →
+  resample → add a channel dimension, returning a `(1, D, H, W)` tensor.
+- **`load_and_preprocess`** — convenience: do both load and preprocess.
+
+### Salt-and-pepper noise, and the two ways we handle it
+
+**What it is:** "salt-and-pepper" (a.k.a. *impulse*) noise is scattered pure-white
+and pure-black specks in an image — like grains of salt and pepper sprinkled on
+top. In MRI it comes from dead/hot scanner pixels, patient motion, and — most
+relevant to this project — the **archive digitizer** (photographing film picks up
+dust, scratches, glare, and camera-sensor noise). This matters because those
+bright specks look exactly like the small bright white-matter hyperintensities the
+model hunts for, so noise can invent **false lesions** → false positives → lower
+accuracy. (Strictly, a scanner's *native* noise is usually Rician; salt-and-pepper
+is the dominant nuisance on the film-photo path — worth saying precisely to
+judges.)
+
+We tackle it with **two complementary techniques**:
+
+1. **Median-filter denoising (clean the input) — `median_filter_3d`.** For every
+   voxel we look at its small 3×3×3 neighbourhood and replace it with the
+   **median** (middle value) of those 27 voxels. A lone white or black speck is an
+   extreme outlier, so the median simply ignores it — the speck vanishes — while
+   real lesions and edges (which are backed up by their neighbours) survive. This
+   is *why a median beats a blur*: an average would smear the speck around instead
+   of removing it, and would soften true lesions. It's implemented with pure
+   PyTorch tensor shifts (no SciPy dependency) and turned on with
+   `--denoise 3`.
+2. **Salt-and-pepper *augmentation* (toughen the model) — `add_salt_and_pepper`
+   in `train_real.py`.** During training we *deliberately* sprinkle a small,
+   random amount of salt-and-pepper noise onto each scan before the model sees it.
+   By repeatedly showing the model noisy copies whose correct answer hasn't
+   changed, it learns that isolated specks are *not* lesions and stops reacting to
+   them. This is the standard way to make a model **robust** to noise it will meet
+   in the real world (again, especially the film-digitizer path). Turned on with
+   `--salt-pepper 0.02`.
+
+**One-line summary for judges:** *"We both clean the image (a median filter that
+deletes stray specks) and train the model on deliberately noisy scans, so
+salt-and-pepper noise from the film scanner can't be mistaken for a lesion."*
 
 **Judge point:** sorting DICOM slices by physical position (not filename) is the
 kind of correctness detail that separates a real pipeline from a toy.
@@ -703,7 +742,11 @@ MRI, and evaluates on the **completely separate** challenge test set (train on
 60, test on 110 — no overlap, the proper scientific protocol). Key pieces:
 - **`AugmentedDataset`** — because 60 scans is tiny for a 3D CNN, it randomly
   flips each volume and jitters its brightness on the fly. This fights
-  overfitting (the model can't just memorize 60 exact brains).
+  overfitting (the model can't just memorize 60 exact brains). With
+  `--salt-pepper` it also sprinkles random salt-and-pepper noise so the model
+  learns to ignore specks (see the preprocessing section for the full story).
+- **`add_salt_and_pepper`** and the `--denoise` flag — the two noise-robustness
+  techniques (train on noisy copies; optionally median-filter the input clean).
 - A **cosine learning-rate schedule** and best-model-by-AUC checkpointing.
 - It writes `models/performance_real.json` — the same format the performance
   page reads — so the confusion matrix and metrics come straight from real data.

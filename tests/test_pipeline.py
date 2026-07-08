@@ -16,7 +16,7 @@ from wmd.dataset import ManifestDataset  # noqa: E402
 from wmd.explain import grad_cam, overlay_cam_on_slice  # noqa: E402
 from wmd.inference import WMDPredictor  # noqa: E402
 from wmd.model import build_model  # noqa: E402
-from wmd.preprocessing import preprocess_volume  # noqa: E402
+from wmd.preprocessing import median_filter_3d, preprocess_volume  # noqa: E402
 from wmd.synthetic import generate_dataset, make_volume  # noqa: E402
 from wmd.train import train  # noqa: E402
 
@@ -28,6 +28,30 @@ def test_preprocess_output_shape() -> None:
     assert tensor.shape == (1, 32, 32, 32)
     assert tensor.dtype == torch.float32
     assert float(tensor.min()) >= 0.0
+
+
+def test_median_filter_removes_salt_and_pepper() -> None:
+    rng = np.random.default_rng(0)
+    clean = np.tile(np.linspace(0.0, 1.0, 16), (16, 16, 1)).astype(np.float32)
+    noisy = clean.copy()
+    mask = rng.random(clean.shape)
+    noisy[mask < 0.05] = 0.0  # pepper
+    noisy[mask > 0.95] = 1.0  # salt
+    denoised = median_filter_3d(noisy, size=3)
+    assert denoised.shape == clean.shape
+    # The median filter should bring the volume closer to the clean signal.
+    assert np.abs(denoised - clean).mean() < np.abs(noisy - clean).mean()
+
+
+def test_median_filter_disabled_via_config() -> None:
+    volume = make_volume(label=1, shape=(32, 32, 32))
+    plain = preprocess_volume(volume, PreprocessConfig(target_shape=(24, 24, 24)))
+    denoised = preprocess_volume(
+        volume, PreprocessConfig(target_shape=(24, 24, 24), denoise_median_size=3)
+    )
+    assert plain.shape == denoised.shape == (1, 24, 24, 24)
+    # Size 0/1 is a no-op; size 3 changes the output.
+    assert not torch.equal(plain, denoised)
 
 
 def test_model_forward() -> None:

@@ -41,11 +41,41 @@ from sklearn.metrics import (  # noqa: E402
 from torch import nn  # noqa: E402
 from torch.utils.data import DataLoader, Dataset  # noqa: E402
 
-from wmd.config import CLASS_NAMES, MODELS_DIR, TrainConfig  # noqa: E402
+from wmd.config import (  # noqa: E402
+    CLASS_NAMES,
+    MODELS_DIR,
+    PreprocessConfig,
+    TrainConfig,
+)
 from wmd.dataset import ManifestDataset  # noqa: E402
 from wmd.model import build_model  # noqa: E402
 
 DEFAULT_REAL_MODEL_PATH = MODELS_DIR / "wmd_cnn_real.pt"
+
+
+def add_salt_and_pepper(
+    volume: torch.Tensor, amount: float, rng: np.random.Generator
+) -> torch.Tensor:
+    """Corrupt a fraction of voxels with pure-white/pure-black impulse noise.
+
+    "Salt" voxels are forced to 1.0 (max intensity), "pepper" voxels to 0.0.
+    Training with this noise teaches the model to ignore isolated specks
+    (which mimic small hyperintensities) instead of treating them as lesions,
+    making it robust to the noisy scans and film-digitizer captures it will
+    see in the real world.
+
+    Args:
+        volume: Tensor (1, D, H, W) in [0, 1].
+        amount: Fraction of voxels to corrupt (half salt, half pepper).
+        rng: Random generator.
+    """
+    if amount <= 0.0:
+        return volume
+    noise = torch.from_numpy(rng.random(volume.shape).astype(np.float32))
+    volume = volume.clone()
+    volume[noise < amount / 2.0] = 0.0  # pepper
+    volume[noise > 1.0 - amount / 2.0] = 1.0  # salt
+    return volume
 
 
 class AugmentedDataset(Dataset):
@@ -55,11 +85,17 @@ class AugmentedDataset(Dataset):
     scale/shift on the fly. This dramatically reduces overfitting when only a
     few dozen real scans are available. Augmentation is training-only; the test
     set is always passed through unchanged.
+
+    When ``salt_pepper`` > 0, a random fraction of voxels is also corrupted with
+    salt-and-pepper (impulse) noise so the model learns to be robust to specks.
     """
 
-    def __init__(self, base: Dataset, seed: int = 42) -> None:
+    def __init__(
+        self, base: Dataset, seed: int = 42, salt_pepper: float = 0.0
+    ) -> None:
         self.base = base
         self.rng = np.random.default_rng(seed)
+        self.salt_pepper = salt_pepper
 
     def __len__(self) -> int:
         return len(self.base)
@@ -76,6 +112,9 @@ class AugmentedDataset(Dataset):
         scale = float(self.rng.uniform(0.9, 1.1))
         shift = float(self.rng.uniform(-0.05, 0.05))
         volume = torch.clamp(volume * scale + shift, 0.0, 1.0)
+        if self.salt_pepper > 0.0:
+            amount = float(self.rng.uniform(0.0, self.salt_pepper))
+            volume = add_salt_and_pepper(volume, amount, self.rng)
         return volume, label
 
 
@@ -104,6 +143,7 @@ def train_real(
     config: TrainConfig | None = None,
     model_path: str | Path = DEFAULT_REAL_MODEL_PATH,
     use_class_weights: bool = False,
+    salt_pepper: float = 0.0,
 ) -> dict:
     """Train the image-only detection model on real MRI data.
 
@@ -161,7 +201,7 @@ def train_real(
         class_weights = torch.tensor(weights, dtype=torch.float32, device=device)
 
     train_loader = DataLoader(
-        AugmentedDataset(train_ds, seed=config.seed),
+        AugmentedDataset(train_ds, seed=config.seed, salt_pepper=salt_pepper),
         batch_size=config.batch_size, shuffle=True,
     )
     test_loader = DataLoader(test_ds, batch_size=config.batch_size, shuffle=False)
@@ -294,14 +334,26 @@ def main() -> None:
         "--class-weights", action="store_true",
         help="Weight the loss by inverse class frequency (default: off).",
     )
+    parser.add_argument(
+        "--denoise", type=int, default=0, metavar="SIZE",
+        help="Median-filter window size to remove salt-and-pepper noise before "
+             "resampling (odd, e.g. 3). 0 disables it (default).",
+    )
+    parser.add_argument(
+        "--salt-pepper", type=float, default=0.0, metavar="AMOUNT",
+        help="Max fraction of voxels to corrupt with salt-and-pepper noise "
+             "during training for robustness (e.g. 0.02). 0 disables it (default).",
+    )
     args = parser.parse_args()
 
+    preprocess = PreprocessConfig(denoise_median_size=args.denoise)
     config = TrainConfig(
         epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr,
+        preprocess=preprocess,
     )
     train_real(
         args.train_manifest, args.test_manifest, config, args.model_out,
-        use_class_weights=args.class_weights,
+        use_class_weights=args.class_weights, salt_pepper=args.salt_pepper,
     )
 
 

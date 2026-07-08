@@ -124,6 +124,52 @@ def resample_to_shape(
     return resampled[0, 0].numpy()
 
 
+def median_filter_3d(volume: np.ndarray, size: int = 3) -> np.ndarray:
+    """Remove salt-and-pepper (impulse) noise with a 3D median filter.
+
+    Salt-and-pepper noise is isolated very-bright or very-dark voxels -- from
+    scanner dead/hot pixels, motion, or (for the film digitizer) dust, scratches
+    and camera sensor noise. Those specks mimic small white-matter
+    hyperintensities and cause false positives. Replacing each voxel with the
+    *median* of its neighbourhood erases lone outliers while preserving real
+    lesions and edges (a median ignores extreme values, unlike a blur/average).
+
+    Implemented with PyTorch tensor shifts (no SciPy dependency): for a size-3
+    kernel it stacks the 27 neighbours of every voxel and takes the per-voxel
+    median. Edges use replicate padding so the brain border is not darkened.
+
+    Args:
+        volume: 3D float array (D, H, W).
+        size: Odd window size (default 3 -> a 3x3x3 neighbourhood).
+
+    Returns:
+        The denoised 3D float32 array, same shape as the input.
+    """
+    if size < 2:
+        return volume.astype(np.float32)
+    if size % 2 == 0:
+        raise ValueError(f"median filter size must be odd, got {size}")
+
+    pad = size // 2
+    tensor = torch.from_numpy(np.ascontiguousarray(volume))[None, None].float()
+    padded = F.pad(tensor, (pad,) * 6, mode="replicate")[0, 0]
+
+    neighbours = []
+    for dz in range(size):
+        for dy in range(size):
+            for dx in range(size):
+                neighbours.append(
+                    padded[
+                        dz : dz + volume.shape[0],
+                        dy : dy + volume.shape[1],
+                        dx : dx + volume.shape[2],
+                    ]
+                )
+    stacked = torch.stack(neighbours, dim=0)
+    filtered = stacked.median(dim=0).values
+    return filtered.numpy().astype(np.float32)
+
+
 def preprocess_volume(
     volume: np.ndarray, config: PreprocessConfig | None = None
 ) -> torch.Tensor:
@@ -133,6 +179,8 @@ def preprocess_volume(
     """
     config = config or PreprocessConfig()
     normalized = normalize_intensity(volume, config.clip_percentiles)
+    if config.denoise_median_size and config.denoise_median_size >= 2:
+        normalized = median_filter_3d(normalized, config.denoise_median_size)
     resampled = resample_to_shape(normalized, config.target_shape)
     return torch.from_numpy(resampled)[None].float()
 

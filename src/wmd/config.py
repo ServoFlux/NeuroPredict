@@ -84,6 +84,12 @@ class PreprocessConfig:
     # high (99.9) so that bright white-matter hyperintensities -- the signal of
     # interest -- are preserved rather than clipped away.
     clip_percentiles: tuple[float, float] = (0.5, 99.9)
+    # Optional salt-and-pepper (impulse) noise removal. A median filter of this
+    # window size is applied before resampling; 0 or 1 disables it. A size of 3
+    # (a 3x3x3 neighbourhood) removes lone bright/dark specks -- important for
+    # noisy scans and especially the film-digitizer path -- while preserving
+    # real lesions.
+    denoise_median_size: int = 0
 
 
 @dataclass(frozen=True)
