@@ -248,9 +248,48 @@ makes them uniform before the AI sees them.
   rescales to roughly 0–1. Guards against a flat/blank scan (avoids divide-by-zero).
 - **`resample_to_shape`** (116–124) — trilinearly resizes any volume to the fixed
   64×64×64 cube (`F.interpolate`). Trilinear = smooth 3D interpolation.
-- **`preprocess_volume`** (127–137) — the full chain: normalize → resample → add a
-  channel dimension, returning a `(1, D, H, W)` tensor.
-- **`load_and_preprocess`** (140–145) — convenience: do both load and preprocess.
+- **`median_filter_3d`** — removes **salt-and-pepper noise** (see below), an
+  optional denoising step controlled by `PreprocessConfig.denoise_median_size`.
+- **`preprocess_volume`** — the full chain: normalize → *(optional denoise)* →
+  resample → add a channel dimension, returning a `(1, D, H, W)` tensor.
+- **`load_and_preprocess`** — convenience: do both load and preprocess.
+
+### Salt-and-pepper noise, and the two ways we handle it
+
+**What it is:** "salt-and-pepper" (a.k.a. *impulse*) noise is scattered pure-white
+and pure-black specks in an image — like grains of salt and pepper sprinkled on
+top. In MRI it comes from dead/hot scanner pixels, patient motion, and — most
+relevant to this project — the **archive digitizer** (photographing film picks up
+dust, scratches, glare, and camera-sensor noise). This matters because those
+bright specks look exactly like the small bright white-matter hyperintensities the
+model hunts for, so noise can invent **false lesions** → false positives → lower
+accuracy. (Strictly, a scanner's *native* noise is usually Rician; salt-and-pepper
+is the dominant nuisance on the film-photo path — worth saying precisely to
+judges.)
+
+We tackle it with **two complementary techniques**:
+
+1. **Median-filter denoising (clean the input) — `median_filter_3d`.** For every
+   voxel we look at its small 3×3×3 neighbourhood and replace it with the
+   **median** (middle value) of those 27 voxels. A lone white or black speck is an
+   extreme outlier, so the median simply ignores it — the speck vanishes — while
+   real lesions and edges (which are backed up by their neighbours) survive. This
+   is *why a median beats a blur*: an average would smear the speck around instead
+   of removing it, and would soften true lesions. It's implemented with pure
+   PyTorch tensor shifts (no SciPy dependency) and turned on with
+   `--denoise 3`.
+2. **Salt-and-pepper *augmentation* (toughen the model) — `add_salt_and_pepper`
+   in `train_real.py`.** During training we *deliberately* sprinkle a small,
+   random amount of salt-and-pepper noise onto each scan before the model sees it.
+   By repeatedly showing the model noisy copies whose correct answer hasn't
+   changed, it learns that isolated specks are *not* lesions and stops reacting to
+   them. This is the standard way to make a model **robust** to noise it will meet
+   in the real world (again, especially the film-digitizer path). Turned on with
+   `--salt-pepper 0.02`.
+
+**One-line summary for judges:** *"We both clean the image (a median filter that
+deletes stray specks) and train the model on deliberately noisy scans, so
+salt-and-pepper noise from the film scanner can't be mistaken for a lesion."*
 
 **Judge point:** sorting DICOM slices by physical position (not filename) is the
 kind of correctness detail that separates a real pipeline from a toy.
@@ -606,9 +645,10 @@ result. It's the glue connecting all the other files.
 ### `_run_prediction` (162–231) — the shared engine
 Both the normal upload and the digitizer funnel through this so they produce the
 **identical** result page:
-1. If no model, return a friendly error (171–176).
-2. Run prediction + attribution (178).
-3. Make the preview + Grad-CAM images (180–184).
+1. If no model, return a friendly error.
+2. Sweep away any stale Grad-CAM previews (`_cleanup_old_previews`), then run
+   prediction + attribution.
+3. Make the preview + Grad-CAM images.
 4. Build the `explanation` and `attribution` blocks, converting 0–1 numbers into
    percentages (185–202).
 5. Build `cause_probs` (204–211): all causes except "no_wmd," sorted highest-first
@@ -638,20 +678,47 @@ is a placeholder coordinate system (fine for a demo volume).
   it first reconstructs the volume (`_film_to_volume_path`) then runs the same
   prediction, and deletes both the photo and the rebuilt volume afterward.
 
-### `POST /ingest/film` (329–383) — the device endpoint
+### `POST /ingest/film` — the device endpoint
 What a camera device posts to. Like `/digitizer` but returns **JSON** (for a
-machine) instead of HTML: 503 if the model isn't loaded, 400 if the photo is
-missing/wrong type; otherwise reconstruct → predict → update the dashboard's
-"latest" memory with a timestamp → return label, confidence, disease %, and all
-probabilities. (This is the hook the IoT device would use later.)
+machine) instead of HTML: 503 if the model isn't loaded, **401 if the API key is
+required but wrong/missing** (see below), 400 if the photo is missing/wrong type;
+otherwise reconstruct → predict → update the dashboard's "latest" memory with a
+timestamp → return label, confidence, disease %, and all probabilities.
 
 ### `_summarize_answers` (386–396)
 Builds a readable "here's what you entered" list for the result page (age as a
 number, yes/no for the rest, "—" if blank).
 
-**Security/robustness points you can mention:** uploaded files are validated by
-type, processed under `try/except` so a bad file can't crash the server, and
-**deleted right after** use. The model loads once at startup for speed.
+### How the app protects a user's data (the security model)
+
+A common judge question is *"what happens to my MRI and my answers?"* Here is the
+honest, complete answer, and the safeguards in the code:
+
+- **Encrypted in transit.** The live site is hosted on Hugging Face Spaces, which
+  serves everything over **HTTPS/TLS**, so the scan and questionnaire are
+  encrypted between the browser and the server.
+- **The scan is never kept.** The uploaded MRI is saved to a temp file with a
+  random name, used for the prediction, then **deleted in a `finally` block** —
+  so it's removed even if the prediction errors out (`/predict`, `/digitizer`,
+  and `/ingest/film` all do this).
+- **The questionnaire is never stored.** Answers live only in memory for the
+  duration of the request; nothing is written to a database or a log.
+- **Brain-slice preview images don't linger.** The Grad-CAM heatmap PNGs have to
+  be written so the browser can show them, but **`_cleanup_old_previews`** sweeps
+  the preview folder on every prediction and deletes any image older than
+  `PREVIEW_TTL_SECONDS` (10 min) — long enough to display, then gone.
+- **The device endpoint can be locked.** If you set the `NEUROPREDICT_API_KEY`
+  environment variable, `/ingest/film` requires the camera to send a matching
+  `X-API-Key` header (checked by **`_ingest_key_ok`**) or it returns **401**. Left
+  unset, the endpoint stays open for easy local demos. The ESP32-CAM firmware has
+  a matching `API_KEY` setting.
+- **Bad input can't crash it.** Uploads are validated by file type and everything
+  runs under `try/except`, so a corrupt file returns a friendly error instead of
+  taking the server down. The model loads once at startup for speed.
+
+**Honest gaps to acknowledge (it's a research demo):** there are no user logins,
+no rate limiting, and it is **not** HIPAA/clinical-grade — which is exactly why
+every page carries the "research and educational use only" disclaimer.
 
 ---
 
@@ -749,7 +816,11 @@ MRI, and evaluates on the **completely separate** challenge test set (train on
 60, test on 110 — no overlap, the proper scientific protocol). Key pieces:
 - **`AugmentedDataset`** — because 60 scans is tiny for a 3D CNN, it randomly
   flips each volume and jitters its brightness on the fly. This fights
-  overfitting (the model can't just memorize 60 exact brains).
+  overfitting (the model can't just memorize 60 exact brains). With
+  `--salt-pepper` it also sprinkles random salt-and-pepper noise so the model
+  learns to ignore specks (see the preprocessing section for the full story).
+- **`add_salt_and_pepper`** and the `--denoise` flag — the two noise-robustness
+  techniques (train on noisy copies; optionally median-filter the input clean).
 - A **cosine learning-rate schedule** and best-model-by-AUC checkpointing.
 - It writes `models/performance_real.json` — the same format the performance
   page reads — so the confusion matrix and metrics come straight from real data.
