@@ -612,9 +612,10 @@ result. It's the glue connecting all the other files.
 ### `_run_prediction` (162–231) — the shared engine
 Both the normal upload and the digitizer funnel through this so they produce the
 **identical** result page:
-1. If no model, return a friendly error (171–176).
-2. Run prediction + attribution (178).
-3. Make the preview + Grad-CAM images (180–184).
+1. If no model, return a friendly error.
+2. Sweep away any stale Grad-CAM previews (`_cleanup_old_previews`), then run
+   prediction + attribution.
+3. Make the preview + Grad-CAM images.
 4. Build the `explanation` and `attribution` blocks, converting 0–1 numbers into
    percentages (185–202).
 5. Build `cause_probs` (204–211): all causes except "no_wmd," sorted highest-first
@@ -644,20 +645,47 @@ is a placeholder coordinate system (fine for a demo volume).
   it first reconstructs the volume (`_film_to_volume_path`) then runs the same
   prediction, and deletes both the photo and the rebuilt volume afterward.
 
-### `POST /ingest/film` (329–383) — the device endpoint
+### `POST /ingest/film` — the device endpoint
 What a camera device posts to. Like `/digitizer` but returns **JSON** (for a
-machine) instead of HTML: 503 if the model isn't loaded, 400 if the photo is
-missing/wrong type; otherwise reconstruct → predict → update the dashboard's
-"latest" memory with a timestamp → return label, confidence, disease %, and all
-probabilities. (This is the hook the IoT device would use later.)
+machine) instead of HTML: 503 if the model isn't loaded, **401 if the API key is
+required but wrong/missing** (see below), 400 if the photo is missing/wrong type;
+otherwise reconstruct → predict → update the dashboard's "latest" memory with a
+timestamp → return label, confidence, disease %, and all probabilities.
 
 ### `_summarize_answers` (386–396)
 Builds a readable "here's what you entered" list for the result page (age as a
 number, yes/no for the rest, "—" if blank).
 
-**Security/robustness points you can mention:** uploaded files are validated by
-type, processed under `try/except` so a bad file can't crash the server, and
-**deleted right after** use. The model loads once at startup for speed.
+### How the app protects a user's data (the security model)
+
+A common judge question is *"what happens to my MRI and my answers?"* Here is the
+honest, complete answer, and the safeguards in the code:
+
+- **Encrypted in transit.** The live site is hosted on Hugging Face Spaces, which
+  serves everything over **HTTPS/TLS**, so the scan and questionnaire are
+  encrypted between the browser and the server.
+- **The scan is never kept.** The uploaded MRI is saved to a temp file with a
+  random name, used for the prediction, then **deleted in a `finally` block** —
+  so it's removed even if the prediction errors out (`/predict`, `/digitizer`,
+  and `/ingest/film` all do this).
+- **The questionnaire is never stored.** Answers live only in memory for the
+  duration of the request; nothing is written to a database or a log.
+- **Brain-slice preview images don't linger.** The Grad-CAM heatmap PNGs have to
+  be written so the browser can show them, but **`_cleanup_old_previews`** sweeps
+  the preview folder on every prediction and deletes any image older than
+  `PREVIEW_TTL_SECONDS` (10 min) — long enough to display, then gone.
+- **The device endpoint can be locked.** If you set the `NEUROPREDICT_API_KEY`
+  environment variable, `/ingest/film` requires the camera to send a matching
+  `X-API-Key` header (checked by **`_ingest_key_ok`**) or it returns **401**. Left
+  unset, the endpoint stays open for easy local demos. The ESP32-CAM firmware has
+  a matching `API_KEY` setting.
+- **Bad input can't crash it.** Uploads are validated by file type and everything
+  runs under `try/except`, so a corrupt file returns a friendly error instead of
+  taking the server down. The model loads once at startup for speed.
+
+**Honest gaps to acknowledge (it's a research demo):** there are no user logins,
+no rate limiting, and it is **not** HIPAA/clinical-grade — which is exactly why
+every page carries the "research and educational use only" disclaimer.
 
 ---
 

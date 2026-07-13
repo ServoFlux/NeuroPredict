@@ -6,6 +6,7 @@ Run from the project root:
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import time
@@ -41,6 +42,17 @@ PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_SUFFIXES = (".nii", ".nii.gz", ".dcm", ".ima")
 FILM_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+# Grad-CAM preview images are written so the browser can display them, but they
+# contain brain slices, so we do not keep them around. Each prediction sweeps
+# the preview directory and deletes files older than this many seconds -- long
+# enough for the result page (and its images) to load, then gone.
+PREVIEW_TTL_SECONDS = 600
+
+# Optional shared secret for the device endpoint. If set (via environment), the
+# ESP32-CAM must send a matching `X-API-Key` header (or `api_key` form field) to
+# POST to /ingest/film. If unset, the endpoint stays open for local demos.
+INGEST_API_KEY = os.getenv("NEUROPREDICT_API_KEY")
 
 # Latest digitized film result, surfaced on the /digitizer dashboard so a device
 # capture is visible without a browser upload. Resets on restart.
@@ -121,6 +133,33 @@ def _parse_int(raw: object, default: int) -> int:
         return default
 
 
+def _cleanup_old_previews(max_age_seconds: int = PREVIEW_TTL_SECONDS) -> None:
+    """Delete Grad-CAM preview images older than the TTL.
+
+    Keeps brain-slice images from lingering on disk after a prediction while
+    still giving the result page time to load them.
+    """
+    now = time.time()
+    for preview in PREVIEW_DIR.glob("*.png"):
+        try:
+            if now - preview.stat().st_mtime > max_age_seconds:
+                preview.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _ingest_key_ok(request: Request, form: object) -> bool:
+    """Check the device endpoint's optional shared secret.
+
+    Returns True when no key is configured (open demo mode) or when the request
+    presents the matching key via the `X-API-Key` header or an `api_key` field.
+    """
+    if not INGEST_API_KEY:
+        return True
+    provided = request.headers.get("x-api-key") or form.get("api_key")  # type: ignore[attr-defined]
+    return provided == INGEST_API_KEY
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     return {
@@ -175,6 +214,7 @@ def _run_prediction(
         )
         return ctx
 
+    _cleanup_old_previews()
     prediction, attr = predictor.predict_path(saved_path, answers)
 
     preview_png = PREVIEW_DIR / f"{token}.png"
@@ -337,6 +377,11 @@ async def ingest_film(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "model not loaded"}, status_code=503)
 
     form = await request.form()
+    if not _ingest_key_ok(request, form):
+        return JSONResponse(
+            {"ok": False, "error": "invalid or missing API key"}, status_code=401
+        )
+
     sheet = form.get("sheet")
     filename = getattr(sheet, "filename", None)
     if sheet is None or not filename or not _has_film_suffix(filename):
