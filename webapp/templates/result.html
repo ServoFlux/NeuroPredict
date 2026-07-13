@@ -17,6 +17,14 @@
                 Overall white matter disease probability:
                 <strong>{{ result.wmd_probability }}%</strong>
             </div>
+            {% if result.severity %}
+            <div class="severity severity-{{ result.severity.level|lower }}">
+                <span class="severity-label">Severity indicator</span>
+                <span class="severity-level">{{ result.severity.level }}</span>
+                <span class="severity-desc">{{ result.severity.description }}
+                    Research indicator only, not a clinical grade.</span>
+            </div>
+            {% endif %}
         </div>
 
         <div class="scan-views">
