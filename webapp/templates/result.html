@@ -43,9 +43,10 @@
     </p>
     <ul class="prob-list">
         {% for c in result.cause_probs %}
+        {% set cls = 'bar-high' if c.pct >= 60 else ('bar-mid' if c.pct >= 30 else 'bar-low') %}
         <li>
             <span class="prob-name">{{ c.label }}</span>
-            <span class="prob-bar"><span style="width: {{ c.pct }}%"></span></span>
+            <span class="prob-bar"><span class="{{ cls }}" style="width: {{ c.pct }}%"></span></span>
             <span class="prob-value">{{ c.pct }}%</span>
         </li>
         {% endfor %}
@@ -55,9 +56,10 @@
     <h3>All class probabilities</h3>
     <ul class="prob-list">
         {% for name, prob in result.probabilities.items() %}
+        {% set cls = 'bar-high' if prob >= 60 else ('bar-mid' if prob >= 30 else 'bar-low') %}
         <li>
             <span class="prob-name">{{ name }}</span>
-            <span class="prob-bar"><span style="width: {{ prob }}%"></span></span>
+            <span class="prob-bar"><span class="{{ cls }}" style="width: {{ prob }}%"></span></span>
             <span class="prob-value">{{ prob }}%</span>
         </li>
         {% endfor %}
