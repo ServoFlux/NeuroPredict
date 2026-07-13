@@ -67,6 +67,8 @@ The latest digitized result also shows up at `http://localhost:8000/digitizer`.
 2. Open `esp32cam_digitizer.ino` and set `WIFI_SSID`, `WIFI_PASS`, and
    `SERVER_URL` (e.g. `http://<your-computer-ip>:8000/ingest/film`).
 3. Set `SHEET_COLS` and `SHEET_DEPTH` to match how your film is laid out.
+   If the server runs with a `NEUROPREDICT_API_KEY`, also set `API_KEY` to the
+   same value so the device is authorized (leave it blank for open demos).
 4. Connect the FTDI adapter, jumper **GPIO0 → GND**, press reset, and upload.
 5. Remove the GPIO0 jumper, press reset. Open Serial Monitor (115200 baud) to
    see the WiFi IP and upload responses.
@@ -74,6 +76,9 @@ The latest digitized result also shows up at `http://localhost:8000/digitizer`.
 ## API reference
 
 `POST /ingest/film` — multipart/form-data
+
+If the server sets `NEUROPREDICT_API_KEY`, send the same value in an `X-API-Key`
+header (or an `api_key` form field); otherwise the request is rejected with 401.
 
 | field | type | description |
 | --- | --- | --- |

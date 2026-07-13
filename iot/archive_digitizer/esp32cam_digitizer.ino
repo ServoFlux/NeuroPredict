@@ -28,6 +28,9 @@ const char *WIFI_SSID = "YOUR_WIFI_SSID";
 const char *WIFI_PASS = "YOUR_WIFI_PASSWORD";
 // Point this at the machine running `uvicorn webapp.main:app --port 8000`.
 const char *SERVER_URL = "http://192.168.1.100:8000/ingest/film";
+// Must match the server's NEUROPREDICT_API_KEY (if the server sets one). Leave
+// blank when the server runs without a key (open demo mode).
+const char *API_KEY = "";
 
 // The slice grid printed on your film sheet, and how many slices to keep.
 const int SHEET_COLS = 8;
@@ -122,6 +125,9 @@ void uploadFrame(camera_fb_t *fb) {
   HTTPClient http;
   http.begin(SERVER_URL);
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+  if (strlen(API_KEY) > 0) {
+    http.addHeader("X-API-Key", API_KEY);
+  }
 
   size_t totalLen = head.length() + fb->len + tail.length();
   uint8_t *payload = (uint8_t *)malloc(totalLen);
