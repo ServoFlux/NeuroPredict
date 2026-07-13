@@ -98,6 +98,13 @@ Every other file imports its settings from here, so there's one source of truth.
 - **`ETIOLOGY_NEXT_STEPS`** (42–74) — the educational "what to do next" bullet
   list for each cause. *Every* entry is framed as "talk to a clinician" — never a
   diagnosis. This is a deliberate safety/ethics choice you can point to.
+- **`SEVERITY_BANDS` + `assess_severity`** — turn a *positive* result into a
+  plain-language band (**Mild / Moderate / Severe**) so the page shows *how
+  pronounced* the signal is, not just yes/no. It buckets the model's estimated
+  white-matter-disease probability: ≥85% → Severe, ≥70% → Moderate, else Mild.
+  Crucially this is a **research/confidence indicator, NOT a clinical severity
+  grade** — the UI says so explicitly. Keeping the thresholds here in one place
+  means they're easy to justify to a judge and easy to tune.
 - **`PreprocessConfig`** (77–86) — how a raw scan is standardized:
   - `target_shape = (64, 64, 64)` — every scan is resized to a 64×64×64 cube so
     the network always sees the same size.
@@ -620,10 +627,11 @@ Both the normal upload and the digitizer funnel through this so they produce the
    percentages (185–202).
 5. Build `cause_probs` (204–211): all causes except "no_wmd," sorted highest-first
    — the ranked list with colored bars.
-6. Build the `result` block (212–226): label, confidence, overall disease %, all
-   probabilities, the cause list, and the **tailored next steps** for the predicted
-   cause (pulled from config).
-7. Update the "latest digitized" memory (227–230).
+6. Build the `result` block: label, confidence, overall disease %, all
+   probabilities, the cause list, a **severity indicator** (Mild/Moderate/Severe,
+   via `assess_severity` — only for a positive result), and the **tailored next
+   steps** for the predicted cause (pulled from config).
+7. Update the "latest digitized" memory.
 
 ### `_film_to_volume_path` (234–242)
 Turns a film photo into a real `.nii.gz` volume on disk (using `filmscan.py`), so

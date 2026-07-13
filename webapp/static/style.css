@@ -196,6 +196,30 @@ code {
 .result-confidence { color: var(--muted); margin-top: 0.35rem; }
 .result-sub { color: var(--muted); margin-top: 0.6rem; font-size: 0.95rem; }
 
+.severity {
+    margin-top: 0.85rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+.severity-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+}
+.severity-level { font-size: 1.2rem; font-weight: 700; }
+.severity-desc { font-size: 0.82rem; color: var(--muted); }
+.severity-mild { background: rgba(250, 204, 21, 0.12); }
+.severity-mild .severity-level { color: #facc15; }
+.severity-moderate { background: rgba(249, 115, 22, 0.14); }
+.severity-moderate .severity-level { color: #fb923c; }
+.severity-severe { background: rgba(239, 68, 68, 0.15); }
+.severity-severe .severity-level { color: #f87171; }
+
 .scan-views {
     display: flex;
     gap: 1rem;

@@ -30,6 +30,7 @@ from wmd.config import (  # noqa: E402
     ETIOLOGY_LABELS,
     ETIOLOGY_NEXT_STEPS,
     RESEARCH_DISCLAIMER,
+    assess_severity,
 )
 from wmd.filmscan import grid_shape_for_depth, volume_from_contact_sheet  # noqa: E402
 from wmd.inference import MultimodalWMDPredictor  # noqa: E402
@@ -241,6 +242,7 @@ def _run_prediction(
     }
     ctx["answers_summary"] = _summarize_answers(answers)
     is_positive = prediction.label != "no_wmd"
+    severity = assess_severity(attr.combined) if is_positive else None
     cause_probs = [
         {"label": _pretty(name), "pct": round(p * 100, 1)}
         for name, p in sorted(
@@ -260,6 +262,11 @@ def _run_prediction(
         },
         "cause_probs": cause_probs,
         "is_positive": is_positive,
+        "severity": (
+            {"level": severity.level, "description": severity.description}
+            if severity is not None
+            else None
+        ),
         "next_steps": ETIOLOGY_NEXT_STEPS.get(
             prediction.label, ETIOLOGY_NEXT_STEPS["no_wmd"]
         ),

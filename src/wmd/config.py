@@ -74,6 +74,39 @@ ETIOLOGY_NEXT_STEPS: dict[str, list[str]] = {
 }
 
 
+# Severity indicator bands (research only). Given the model's estimated
+# probability of white matter disease, map a *positive* result to a plain-language
+# band so the page conveys how pronounced the signal is -- not just yes/no. These
+# are confidence-derived bands, NOT a clinical severity grade. Ordered high->low;
+# the first band whose threshold is met wins.
+SEVERITY_BANDS: tuple[tuple[str, float, str], ...] = (
+    ("Severe", 0.85, "The model's white-matter-disease signal is very strong."),
+    ("Moderate", 0.70, "The model's white-matter-disease signal is clear."),
+    ("Mild", 0.0, "The model's white-matter-disease signal is present but modest."),
+)
+
+
+@dataclass(frozen=True)
+class Severity:
+    """A research severity band derived from the model's WMD probability."""
+
+    level: str  # "Mild" | "Moderate" | "Severe"
+    description: str
+
+
+def assess_severity(wmd_probability: float) -> Severity:
+    """Map a 0-1 white-matter-disease probability to a research severity band.
+
+    This is an interpretability aid, not a clinical grade: it simply buckets how
+    confident/pronounced the model's positive signal is.
+    """
+    for level, threshold, description in SEVERITY_BANDS:
+        if wmd_probability >= threshold:
+            return Severity(level=level, description=description)
+    level, _, description = SEVERITY_BANDS[-1]
+    return Severity(level=level, description=description)
+
+
 @dataclass(frozen=True)
 class PreprocessConfig:
     """Configuration for turning a raw scan into a model-ready tensor."""
