@@ -7,13 +7,19 @@
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+    {% set path = request.url.path if request else "/" %}
     <header class="site-header">
-        <h1>NeuroPredict</h1>
-        <p class="subtitle">Early White Matter Disease risk prediction from MRI scans — 3D CNN (research demo)</p>
+        <a class="brand" href="/">
+            <span class="brand-logo" aria-hidden="true">🧠</span>
+            <span class="brand-text">
+                <span class="brand-name">NeuroPredict</span>
+                <span class="subtitle">Early White Matter Disease risk prediction — 3D&nbsp;CNN (research demo)</span>
+            </span>
+        </a>
         <nav class="site-nav">
-            <a href="/">Predict</a>
-            <a href="/digitizer">Archive digitizer</a>
-            <a href="/performance">Model performance</a>
+            <a href="/" class="{{ 'active' if path == '/' else '' }}">Predict</a>
+            <a href="/digitizer" class="{{ 'active' if path.startswith('/digitizer') else '' }}">Archive&nbsp;Digitizer</a>
+            <a href="/performance" class="{{ 'active' if path.startswith('/performance') else '' }}">Model&nbsp;performance</a>
         </nav>
     </header>
 
@@ -24,5 +30,6 @@
     <footer class="disclaimer">
         <strong>Disclaimer:</strong> {{ disclaimer }}
     </footer>
+    {% block scripts %}{% endblock %}
 </body>
 </html>
