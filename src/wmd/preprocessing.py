@@ -173,16 +173,51 @@ def median_filter_3d(volume: np.ndarray, size: int = 3) -> np.ndarray:
 def preprocess_volume(
     volume: np.ndarray, config: PreprocessConfig | None = None
 ) -> torch.Tensor:
-    """Full preprocessing: normalize -> resample -> tensor with channel dim.
+    """Full preprocessing: (harmonize) -> normalize -> denoise -> resample.
 
-    Returns a tensor of shape (1, D, H, W).
+    Optional cross-scanner harmonization runs first (bias-field correction +
+    the chosen intensity normalization) so scans from different machines look
+    comparable to the CNN. Returns a tensor of shape (1, D, H, W).
     """
     config = config or PreprocessConfig()
-    normalized = normalize_intensity(volume, config.clip_percentiles)
+    volume = volume.astype(np.float32)
+
+    mask = None
+    if config.bias_correct:
+        from .harmonization import bias_field_correct, otsu_brain_mask
+
+        mask = otsu_brain_mask(volume)
+        volume = bias_field_correct(volume, mask=mask)
+
+    normalized = _apply_intensity_norm(volume, config, mask)
     if config.denoise_median_size and config.denoise_median_size >= 2:
         normalized = median_filter_3d(normalized, config.denoise_median_size)
     resampled = resample_to_shape(normalized, config.target_shape)
     return torch.from_numpy(resampled)[None].float()
+
+
+def _apply_intensity_norm(
+    volume: np.ndarray, config: PreprocessConfig, mask: np.ndarray | None
+) -> np.ndarray:
+    """Dispatch to the configured intensity normalization mode."""
+    mode = config.intensity_norm
+    if mode == "minmax":
+        return normalize_intensity(volume, config.clip_percentiles)
+    if mode in ("zscore", "whitestripe"):
+        from .harmonization import (
+            otsu_brain_mask,
+            white_stripe_normalize,
+            zscore_normalize,
+        )
+
+        if mask is None:
+            mask = otsu_brain_mask(volume)
+        if mode == "zscore":
+            return zscore_normalize(volume, mask)
+        return white_stripe_normalize(volume, mask)
+    raise ValueError(
+        f"Unknown intensity_norm '{mode}' (expected 'minmax', 'zscore', or 'whitestripe')"
+    )
 
 
 def load_and_preprocess(

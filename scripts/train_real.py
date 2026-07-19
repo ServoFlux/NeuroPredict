@@ -459,9 +459,26 @@ def main() -> None:
              "real data (transfer learning). e.g. 200. 0 disables it (default). "
              "This is the biggest lever for real-data ROC-AUC (~0.6->~0.78).",
     )
+    parser.add_argument(
+        "--bias-correct", action="store_true",
+        help="Apply N4-style bias-field correction to flatten scanner shading "
+             "(cross-scanner harmonization). Off by default.",
+    )
+    parser.add_argument(
+        "--intensity-norm", choices=("minmax", "zscore", "whitestripe"),
+        default="minmax",
+        help="Intensity normalization: 'minmax' (default, [0,1] percentile "
+             "clip), 'zscore', or 'whitestripe' (harmonize tissue intensity "
+             "across scanners). Non-default modes need this same flag at "
+             "inference to match.",
+    )
     args = parser.parse_args()
 
-    preprocess = PreprocessConfig(denoise_median_size=args.denoise)
+    preprocess = PreprocessConfig(
+        denoise_median_size=args.denoise,
+        bias_correct=args.bias_correct,
+        intensity_norm=args.intensity_norm,
+    )
     config = TrainConfig(
         epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr,
         preprocess=preprocess,

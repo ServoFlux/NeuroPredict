@@ -123,6 +123,19 @@ class PreprocessConfig:
     # noisy scans and especially the film-digitizer path -- while preserving
     # real lesions.
     denoise_median_size: int = 0
+    # Optional cross-scanner harmonization (off by default so the existing
+    # trained model keeps working). When True, a lightweight N4-style bias-field
+    # correction flattens the smooth brightness shading scanners impose.
+    bias_correct: bool = False
+    # Intensity normalization mode:
+    #   "minmax"      -- robust percentile clip to [0, 1] (default; what the
+    #                    shipped model was trained on).
+    #   "zscore"      -- mean-0/std-1 within the brain mask.
+    #   "whitestripe" -- WhiteStripe: anchor on normal-appearing white matter so
+    #                    the same tissue maps to the same value across scanners.
+    # "zscore"/"whitestripe" harmonize better across machines but require
+    # retraining the model to match the new intensity scale.
+    intensity_norm: str = "minmax"
 
 
 @dataclass(frozen=True)
