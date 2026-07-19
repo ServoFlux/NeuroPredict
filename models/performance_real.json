@@ -8,20 +8,27 @@
     ],
     "confusion_matrix": [
       [
-        24,
-        17
+        23,
+        18
       ],
       [
-        23,
-        46
+        18,
+        51
       ]
     ],
     "n_samples": 110,
     "metrics": {
-      "accuracy": 0.6363636363636364,
-      "roc_auc": 0.7158006362672322,
-      "sensitivity": 0.6666666666666666,
-      "specificity": 0.5853658536585366
+      "accuracy": 0.6727272727272727,
+      "roc_auc": 0.7659950512548603,
+      "sensitivity": 0.7391304347826086,
+      "specificity": 0.5609756097560976
+    },
+    "training_recipe": {
+      "pretrain_synthetic_per_class": 200,
+      "strong_aug": true,
+      "class_weights": true,
+      "salt_pepper": 0.0,
+      "epochs": 30
     }
   }
 }

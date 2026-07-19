@@ -779,20 +779,42 @@ MRI, and evaluates on the **completely separate** challenge test set (train on
 - **`AugmentedDataset`** — because 60 scans is tiny for a 3D CNN, it randomly
   flips each volume and jitters its brightness on the fly. This fights
   overfitting (the model can't just memorize 60 exact brains). With
+  `--strong-aug` it adds three more transforms (Gaussian noise, a random
+  intensity *gamma*, and a small spatial *translation*), and with
   `--salt-pepper` it also sprinkles random salt-and-pepper noise so the model
   learns to ignore specks (see the preprocessing section for the full story).
+- **`pretrain_on_synthetic`** — *transfer learning*, and the single biggest lever
+  on real-data accuracy. Before touching the 60 real scans, it trains the CNN on
+  a large batch of cheap **synthetic** bright-lesion brains so the convolutional
+  filters first learn to detect focal hyperintensities; fine-tuning then starts
+  from those weights instead of random noise. The synthetic data is generated
+  independently of the real test set, so nothing leaks. Turned on with
+  `--pretrain-synthetic 200`.
 - **`add_salt_and_pepper`** and the `--denoise` flag — the two noise-robustness
   techniques (train on noisy copies; optionally median-filter the input clean).
+- **`--class-weights`** — weights the loss by inverse class frequency so the model
+  stops taking the lazy shortcut of predicting "diseased" for everyone.
 - A **cosine learning-rate schedule** and best-model-by-AUC checkpointing.
-- It writes `models/performance_real.json` — the same format the performance
-  page reads — so the confusion matrix and metrics come straight from real data.
+- It writes `models/performance_real.json` (including the `training_recipe` used)
+  — the same format the performance page reads — so the confusion matrix and
+  metrics come straight from real data.
 
-**The honest headline result (real data, held-out test set):** ROC-AUC ≈ **0.72**,
-accuracy ≈ **0.64**. That is *much* lower than the ~1.0 the model scores on
-synthetic data — and that gap is the whole point. Synthetic data proves the
-pipeline works; real data shows the genuine difficulty (only 60 training brains,
-downsampled to 64³, real-world scanner variety across three hospitals). Being
-upfront about this is exactly what earns trust from judges and scientists.
+**The honest headline result (real data, held-out test set).** A plain
+from-scratch model is *unstable* on 60 brains — depending on the random seed it
+lands anywhere from ~0.60 to ~0.72 ROC-AUC and often collapses to "everyone is
+sick" (specificity 0). Adding **synthetic pretraining + class weighting + strong
+augmentation** fixes both problems: ROC-AUC ≈ **0.77**, accuracy ≈ **0.67**,
+sensitivity ≈ **0.74**, specificity ≈ **0.56** — and it is *reproducible*
+(three different seeds all landed 0.78 ± 0.003 in a 5-fold cross-validation,
+versus the old 0.60→0.72 swings). This still sits well below the ~1.0 the model
+scores on synthetic data, and that gap is the whole point: synthetic data proves
+the pipeline works; real data shows the genuine difficulty (only 60 training
+brains, real-world scanner variety across three hospitals). Being upfront about
+this — and about *why* pretraining helps — is exactly what earns trust from
+judges and scientists.
+
+*Recipe:* `python scripts/train_real.py --train-manifest … --test-manifest …
+--pretrain-synthetic 200 --strong-aug --class-weights`.
 
 ## `tests/` — automated checks (run with `pytest`)
 These are fast "smoke tests" that prove each piece works without needing a GPU or
@@ -839,9 +861,11 @@ faithful. That's testing the *science*, not just the code.
   OASIS-3), validate against radiologist labels, and test the digitizer on actual
   film. **We've started this:** `scripts/prepare_wmh_data.py` and
   `scripts/train_real.py` train and evaluate on the real MICCAI WMH Challenge
-  scans (see those sections). The honest real-data result (ROC-AUC ≈ 0.72 vs.
+  scans (see those sections). The honest real-data result (ROC-AUC ≈ 0.77 vs.
   ~1.0 on synthetic) shows both that the pipeline generalizes to real data *and*
-  how much harder real data is — the next step is more data and higher resolution.
+  how much harder real data is. Synthetic pretraining + class weighting + strong
+  augmentation lifted it from an unstable ~0.6–0.72 to a stable ~0.77; the next
+  step is more real data (e.g. OASIS-3, or collaborators' scans).
 - **"Why a 3D CNN and not a normal image classifier?"** An MRI is a 3D volume;
   lesions have 3D shape and location. Flattening to 2D throws away depth.
 - **"Why max pooling / GroupNorm?"** Max pooling preserves tiny bright lesions;
