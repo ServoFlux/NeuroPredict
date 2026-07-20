@@ -112,6 +112,10 @@ Every other file imports its settings from here, so there's one source of truth.
     darkest 0.5% and brightest 0.1% of pixels. *Why the high upper bound (99.9)?*
     Because white-matter lesions are **bright** — we deliberately keep the bright
     end so the signal of interest isn't clipped away. (Good judge detail.)
+  - `bias_correct = False` and `intensity_norm = "minmax"` — optional
+    cross-scanner **harmonization** knobs (see the harmonization section below).
+    Defaults keep the shipped model's behavior; set them to harmonize scans from
+    different machines.
 - **`TrainConfig`** (89–99) — training settings: 15 epochs, batch size 8,
   learning rate 0.001, a 20% validation split, and seed 42 (so runs are
   reproducible). `@dataclass(frozen=True)` means these are read-only once created.
@@ -257,9 +261,49 @@ makes them uniform before the AI sees them.
   64×64×64 cube (`F.interpolate`). Trilinear = smooth 3D interpolation.
 - **`median_filter_3d`** — removes **salt-and-pepper noise** (see below), an
   optional denoising step controlled by `PreprocessConfig.denoise_median_size`.
-- **`preprocess_volume`** — the full chain: normalize → *(optional denoise)* →
-  resample → add a channel dimension, returning a `(1, D, H, W)` tensor.
+- **`preprocess_volume`** — the full chain: *(optional harmonize)* → normalize →
+  *(optional denoise)* → resample → add a channel dimension, returning a
+  `(1, D, H, W)` tensor.
 - **`load_and_preprocess`** — convenience: do both load and preprocess.
+
+### Cross-scanner harmonization (`src/wmd/harmonization.py`)
+
+**The problem (Dr. Tohka's point):** archival scans come from different machines
+(1.5T vs 3T; Philips vs Siemens vs GE) with different shading and intensity
+scales. If we don't correct for that, the CNN can learn *"which scanner"* instead
+of *"is there disease"* — a hidden bias that inflates scores and fails on new
+scanners. Harmonization makes the same tissue look the same everywhere first.
+
+Three per-scan, dependency-free steps (NumPy/PyTorch only — honest
+approximations of the standard ANTs N4 / WhiteStripe tools):
+
+- **`otsu_brain_mask`** — separates brain from background with Otsu's threshold,
+  so the other steps use brain voxels only (not air).
+- **`bias_field_correct`** — an **N4-style bias-field correction**. Scanners
+  impose a smooth multiplicative brightness gradient (surface coils are brighter
+  nearby). We estimate that slow field as a heavily blurred version of the image
+  (in the log domain), then divide it out so one tissue has a consistent
+  intensity across the whole brain. Enable with `--bias-correct`.
+- **`zscore_normalize` / `white_stripe_normalize`** — intensity normalization so
+  the *same tissue maps to the same number* across scanners. Z-score uses the
+  whole brain; **WhiteStripe** anchors on normal-appearing white matter (a tissue
+  that should look identical across machines), making it scale-invariant to a
+  scanner's raw units. Select with `--intensity-norm zscore|whitestripe`.
+
+These are **opt-in** (defaults are unchanged: `minmax` normalization, no bias
+correction), so the shipped model keeps working. A harmonizing mode changes the
+intensity scale, so a model must be *trained and served with the same mode*.
+
+**Honest limits:** these are lightweight approximations, not validated clinical
+harmonization. True **ComBat** — the gold-standard for removing site effects —
+is a *cohort-level* statistical method: it needs a batch of scans with known
+site labels to estimate and remove each scanner's effect, so it can't run on a
+single live upload. It's the natural next step once we have multi-site scans
+(e.g. from Dr. Tohka). Isotropic mm-spacing resampling is another future add.
+
+**One-line summary for judges:** *"Before the AI sees a scan, we flatten the
+scanner's brightness shading and put every scan on a common intensity scale
+(WhiteStripe), so the model learns disease — not which machine took the scan."*
 
 ### Salt-and-pepper noise, and the two ways we handle it
 
