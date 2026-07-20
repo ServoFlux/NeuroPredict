@@ -55,6 +55,27 @@ class Explanation:
     attention_fraction: float  # fraction of the slice the model attends to
 
 
+def _save_cam_slice(
+    processed: np.ndarray,
+    cam: np.ndarray,
+    input_png: str | Path,
+    overlay_png: str | Path,
+) -> int:
+    """Save the plain input slice and its Grad-CAM overlay for the most salient
+    axial slice. Returns that slice index."""
+    from PIL import Image
+
+    z = most_salient_axial_index(cam)
+    base = np.clip(processed[z], 0.0, 1.0)
+    input_rgb = (np.stack([base, base, base], axis=-1) * 255).astype(np.uint8)
+    overlay_rgb = overlay_cam_on_slice(base, cam[z])
+    for arr, dest in ((input_rgb, input_png), (overlay_rgb, overlay_png)):
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(arr).resize((256, 256), Image.NEAREST).save(str(dest))
+    return z
+
+
 class WMDPredictor:
     """Loads a checkpoint once and serves predictions for uploaded scans."""
 
@@ -109,8 +130,6 @@ class WMDPredictor:
         so users can directly compare what was fed in vs. where the model looked.
         This turns the model from a black box into something a user can inspect.
         """
-        from PIL import Image
-
         volume = load_volume(path)
         original_shape = tuple(int(d) for d in volume.shape)
 
@@ -119,17 +138,7 @@ class WMDPredictor:
         cam = grad_cam(self.model, tensor, prediction.label_index)
 
         processed = tensor.detach()[0, 0].numpy()  # normalized, resampled volume
-        z = most_salient_axial_index(cam)
-
-        base = np.clip(processed[z], 0.0, 1.0)
-        input_rgb = (np.stack([base, base, base], axis=-1) * 255).astype(np.uint8)
-        overlay_rgb = overlay_cam_on_slice(base, cam[z])
-
-        for arr, dest in ((input_rgb, input_png), (overlay_rgb, overlay_png)):
-            dest = Path(dest)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(arr).resize((256, 256), Image.NEAREST).save(str(dest))
-
+        z = _save_cam_slice(processed, cam, input_png, overlay_png)
         return Explanation(
             original_shape=original_shape,
             processed_shape=tuple(int(d) for d in processed.shape),
@@ -259,8 +268,6 @@ class MultimodalWMDPredictor:
         input_png: str | Path,
     ) -> Explanation:
         """Grad-CAM on the MRI branch, with the clinical vector held fixed."""
-        from PIL import Image
-
         volume = load_volume(path)
         original_shape = tuple(int(d) for d in volume.shape)
 
@@ -271,16 +278,7 @@ class MultimodalWMDPredictor:
         cam = grad_cam(wrapper, tensor, prediction.label_index)
 
         processed = tensor.detach()[0, 0].numpy()
-        z = most_salient_axial_index(cam)
-        base = np.clip(processed[z], 0.0, 1.0)
-        input_rgb = (np.stack([base, base, base], axis=-1) * 255).astype(np.uint8)
-        overlay_rgb = overlay_cam_on_slice(base, cam[z])
-
-        for arr, dest in ((input_rgb, input_png), (overlay_rgb, overlay_png)):
-            dest = Path(dest)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(arr).resize((256, 256), Image.NEAREST).save(str(dest))
-
+        z = _save_cam_slice(processed, cam, input_png, overlay_png)
         return Explanation(
             original_shape=original_shape,
             processed_shape=tuple(int(d) for d in processed.shape),

@@ -117,14 +117,9 @@ def _parse_clinical(form: object) -> dict[str, float]:
     return answers
 
 
-def _has_allowed_suffix(filename: str) -> bool:
+def _has_suffix(filename: str, suffixes: tuple[str, ...]) -> bool:
     name = filename.lower()
-    return any(name.endswith(suffix) for suffix in ALLOWED_SUFFIXES)
-
-
-def _has_film_suffix(filename: str) -> bool:
-    name = filename.lower()
-    return any(name.endswith(suffix) for suffix in FILM_SUFFIXES)
+    return any(name.endswith(suffix) for suffix in suffixes)
 
 
 def _parse_int(raw: object, default: int) -> int:
@@ -295,7 +290,7 @@ async def predict(request: Request) -> HTMLResponse:
     scan = form.get("scan")
     filename = getattr(scan, "filename", None)
 
-    if scan is None or not filename or not _has_allowed_suffix(filename):
+    if scan is None or not filename or not _has_suffix(filename, ALLOWED_SUFFIXES):
         ctx = _empty_context(filename)
         ctx["error"] = (
             "Unsupported file type. Please upload a NIfTI (.nii/.nii.gz) or "
@@ -343,7 +338,7 @@ async def digitizer_submit(request: Request) -> HTMLResponse:
     sheet = form.get("sheet")
     filename = getattr(sheet, "filename", None)
 
-    if sheet is None or not filename or not _has_film_suffix(filename):
+    if sheet is None or not filename or not _has_suffix(filename, FILM_SUFFIXES):
         ctx = _empty_context(filename)
         ctx["error"] = (
             "Please upload a photo of the film sheet (PNG/JPEG)."
@@ -391,7 +386,7 @@ async def ingest_film(request: Request) -> JSONResponse:
 
     sheet = form.get("sheet")
     filename = getattr(sheet, "filename", None)
-    if sheet is None or not filename or not _has_film_suffix(filename):
+    if sheet is None or not filename or not _has_suffix(filename, FILM_SUFFIXES):
         return JSONResponse(
             {"ok": False, "error": "missing film image (field 'sheet')"},
             status_code=400,

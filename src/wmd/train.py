@@ -30,6 +30,65 @@ def _set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
+def _clone_state(model: nn.Module) -> dict:
+    return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+
+def _fit(
+    model: nn.Module,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    n_train: int,
+    config: TrainConfig,
+    device: torch.device,
+    evaluate_fn,
+    multimodal: bool,
+) -> dict:
+    """Shared training loop: Adam + cross-entropy, keeping the best-scoring
+    checkpoint (by ROC-AUC, else accuracy). Returns that best state dict."""
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
+    criterion = nn.CrossEntropyLoss()
+
+    best_metric = -1.0
+    best_state = _clone_state(model)
+    for epoch in range(1, config.epochs + 1):
+        model.train()
+        running_loss = 0.0
+        for batch in train_loader:
+            if multimodal:
+                volumes, clinical, labels = batch
+                volumes, clinical, labels = (
+                    volumes.to(device), clinical.to(device), labels.to(device)
+                )
+                logits = model(volumes, clinical)
+            else:
+                volumes, labels = batch
+                volumes, labels = volumes.to(device), labels.to(device)
+                logits = model(volumes)
+            optimizer.zero_grad()
+            loss = criterion(logits, labels)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item() * volumes.size(0)
+
+        train_loss = running_loss / n_train
+        metrics = evaluate_fn(model, val_loader, device)
+        score = metrics.get("roc_auc", metrics["accuracy"])
+        msg = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
+        print(f"epoch {epoch:02d} | train_loss={train_loss:.4f} | val {msg}")
+
+        if score >= best_metric:
+            best_metric = score
+            best_state = _clone_state(model)
+
+    model.load_state_dict(best_state)
+    return best_state
+
+
 def _split_dataset(
     dataset: ManifestDataset, val_fraction: float, seed: int
 ) -> tuple[Subset, Subset]:
@@ -84,39 +143,10 @@ def train(
     val_loader = DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
 
     model = build_model(num_classes=len(CLASS_NAMES)).to(device)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay,
+    best_state = _fit(
+        model, train_loader, val_loader, len(train_ds), config, device,
+        evaluate, multimodal=False,
     )
-    criterion = nn.CrossEntropyLoss()
-
-    best_metric = -1.0
-    best_state = model.state_dict()
-    for epoch in range(1, config.epochs + 1):
-        model.train()
-        running_loss = 0.0
-        for volumes, labels in train_loader:
-            volumes = volumes.to(device)
-            labels = labels.to(device)
-            optimizer.zero_grad()
-            logits = model(volumes)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item() * volumes.size(0)
-
-        train_loss = running_loss / len(train_ds)
-        metrics = evaluate(model, val_loader, device)
-        score = metrics.get("roc_auc", metrics["accuracy"])
-        msg = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
-        print(f"epoch {epoch:02d} | train_loss={train_loss:.4f} | val {msg}")
-
-        if score >= best_metric:
-            best_metric = score
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-
-    model.load_state_dict(best_state)
     final_metrics = evaluate(model, val_loader, device)
 
     model_path = Path(model_path)
@@ -192,40 +222,10 @@ def train_multimodal(
     model = build_multimodal_model(
         num_clinical_features=NUM_CLINICAL_FEATURES, num_classes=len(class_names)
     ).to(device)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay,
+    best_state = _fit(
+        model, train_loader, val_loader, len(train_ds), config, device,
+        evaluate_multimodal, multimodal=True,
     )
-    criterion = nn.CrossEntropyLoss()
-
-    best_metric = -1.0
-    best_state = model.state_dict()
-    for epoch in range(1, config.epochs + 1):
-        model.train()
-        running_loss = 0.0
-        for volumes, clinical, labels in train_loader:
-            volumes = volumes.to(device)
-            clinical = clinical.to(device)
-            labels = labels.to(device)
-            optimizer.zero_grad()
-            logits = model(volumes, clinical)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item() * volumes.size(0)
-
-        train_loss = running_loss / len(train_ds)
-        metrics = evaluate_multimodal(model, val_loader, device)
-        score = metrics.get("roc_auc", metrics["accuracy"])
-        msg = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
-        print(f"epoch {epoch:02d} | train_loss={train_loss:.4f} | val {msg}")
-
-        if score >= best_metric:
-            best_metric = score
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-
-    model.load_state_dict(best_state)
     final_metrics = evaluate_multimodal(model, val_loader, device)
 
     model_path = Path(model_path)
