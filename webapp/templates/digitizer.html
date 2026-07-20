@@ -10,14 +10,12 @@
         runs the normal prediction. The hardware simply <em>helps the website get
         its input</em> — it doesn't change the model.
     </p>
-
     {% if not model_loaded %}
     <div class="banner banner-warn">
         No trained model is loaded. Run
         <code>python scripts/train_demo.py</code> and restart the server.
     </div>
     {% endif %}
-
     {% if latest and latest.label_pretty %}
     <div class="banner banner-info">
         Last digitized capture:
@@ -25,7 +23,6 @@
         <span class="metric">WMD {{ latest.wmd_pct }}%</span>
     </div>
     {% endif %}
-
     <form action="/digitizer" method="post" enctype="multipart/form-data" class="upload-form" data-loading>
         <h3 class="form-section-title">1. Photo of the film sheet</h3>
         <p class="muted">
@@ -38,7 +35,6 @@
             <span class="dropzone-text">Drag a film photo here, or <strong>click to browse</strong></span>
             <span class="dropzone-file" data-empty="No photo selected yet"></span>
         </label>
-
         <div class="questionnaire" style="margin-top: 0.8rem;">
             <div class="q-item q-age">
                 <label for="cols">Slices per row (grid columns)</label>
@@ -49,7 +45,6 @@
                 <input type="number" id="depth" name="depth" min="1" max="400" step="1" value="64" />
             </div>
         </div>
-
         <h3 class="form-section-title">2. Clinical &amp; genomic questionnaire</h3>
         <p class="muted">
             Optional — same questions as the main scan flow. Hover (or tap) the
@@ -96,7 +91,6 @@
             </div>
         </fieldset>
         {% endfor %}
-
         <button type="submit" class="btn" data-loading-label="Digitizing &amp; analyzing…">
             <span class="spinner" aria-hidden="true"></span>
             <span class="btn-label">Digitize &amp; predict</span>

@@ -21,11 +21,9 @@
             <a href="/digitizer" class="{{ 'active' if path.startswith('/digitizer') else '' }}">Archive&nbsp;Digitizer</a>
         </nav>
     </header>
-
     <main class="container">
         {% block content %}{% endblock %}
     </main>
-
     <footer class="disclaimer">
         <strong>Disclaimer:</strong> {{ disclaimer }}
     </footer>

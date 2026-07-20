@@ -2,13 +2,11 @@
 {% block content %}
 <section class="card">
     <a href="/" class="back-link">&larr; Analyze another scan</a>
-
     {% if error %}
     <div class="banner banner-error">{{ error }}</div>
     {% else %}
     <h2>Prediction result</h2>
     <p class="muted">File: <code>{{ filename }}</code></p>
-
     <div class="result-grid">
         <div class="result-main {{ 'positive' if result.is_positive else 'negative' }}">
             <div class="result-label">{{ result.label_pretty }}</div>
@@ -26,7 +24,6 @@
             </div>
             {% endif %}
         </div>
-
         <div class="scan-views">
             {% if preview_url %}
             <figure class="preview">
@@ -42,7 +39,6 @@
             {% endif %}
         </div>
     </div>
-
     {% if result.is_positive and result.cause_probs %}
     <h3>Most likely cause (etiology)</h3>
     <p class="muted explain-intro">
@@ -60,7 +56,6 @@
         {% endfor %}
     </ul>
     {% endif %}
-
     <h3>All class probabilities</h3>
     <ul class="prob-list">
         {% for name, prob in result.probabilities.items() %}
@@ -72,7 +67,6 @@
         </li>
         {% endfor %}
     </ul>
-
     {% if attribution %}
     <h3>What drove this prediction: MRI vs. clinical</h3>
     <p class="muted explain-intro">
@@ -98,7 +92,6 @@
             <strong>{{ attribution.combined }}%</strong> early-WMD probability.</li>
     </ul>
     {% endif %}
-
     {% if result.next_steps %}
     <h3>Recommended next steps</h3>
     <p class="muted explain-intro">
@@ -111,7 +104,6 @@
         {% endfor %}
     </ul>
     {% endif %}
-
     {% if answers_summary %}
     <h3>Clinical answers used</h3>
     <ul class="answers-list">
@@ -120,7 +112,6 @@
         {% endfor %}
     </ul>
     {% endif %}
-
     {% if explanation %}
     <h3>How this prediction was made</h3>
     <p class="muted explain-intro">
