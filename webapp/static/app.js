@@ -1,10 +1,6 @@
-// Small, dependency-free UI helpers: drag-and-drop file picker + submit spinner.
 (function () {
   "use strict";
 
-  // --- Drag-and-drop file picker ---------------------------------------
-  // Each .dropzone wraps a real <input type="file">. We just show the chosen
-  // file name and add a highlight while a file is dragged over it.
   document.querySelectorAll(".dropzone").forEach(function (zone) {
     var input = zone.querySelector('input[type="file"]');
     var nameEl = zone.querySelector(".dropzone-file");
@@ -45,9 +41,6 @@
     showName();
   });
 
-  // --- Submit spinner --------------------------------------------------
-  // When a form with [data-loading] is submitted, swap the button into a
-  // "working" state so the user knows the model is running.
   document.querySelectorAll("form[data-loading]").forEach(function (form) {
     form.addEventListener("submit", function () {
       var btn = form.querySelector("button[type='submit']");

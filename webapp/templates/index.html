@@ -15,7 +15,6 @@
         <a href="/digitizer">Archive MRI digitizer</a> to photograph the film
         sheet and run the same prediction.
     </p>
-
     {% if not model_loaded %}
     <div class="banner banner-warn">
         No trained model is loaded. Run
@@ -29,7 +28,6 @@
         {% endfor %}
     </div>
     {% endif %}
-
     <form action="/predict" method="post" enctype="multipart/form-data" class="upload-form" data-loading>
         <h3 class="form-section-title">1. MRI scan</h3>
         <p class="muted">
@@ -42,7 +40,6 @@
             <span class="dropzone-text">Drag a scan here, or <strong>click to browse</strong></span>
             <span class="dropzone-file" data-empty="No file selected yet"></span>
         </label>
-
         <h3 class="form-section-title">2. Clinical &amp; genomic questionnaire</h3>
         <p class="muted">
             History, symptoms, and genetic markers associated with small-vessel /
@@ -90,7 +87,6 @@
             </div>
         </fieldset>
         {% endfor %}
-
         <button type="submit" class="btn" data-loading-label="Analyzing scan…">
             <span class="spinner" aria-hidden="true"></span>
             <span class="btn-label">Predict</span>
