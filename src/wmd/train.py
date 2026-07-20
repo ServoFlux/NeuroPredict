@@ -1,5 +1,3 @@
-"""Training and evaluation for the WMD 3D CNN."""
-
 from __future__ import annotations
 
 import argparse
@@ -24,15 +22,12 @@ from .config import (
 from .dataset import ManifestDataset, MultimodalManifestDataset
 from .model import build_model, build_multimodal_model
 
-
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-
 def _clone_state(model: nn.Module) -> dict:
     return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-
 
 def _fit(
     model: nn.Module,
@@ -44,8 +39,6 @@ def _fit(
     evaluate_fn,
     multimodal: bool,
 ) -> dict:
-    """Shared training loop: Adam + cross-entropy, keeping the best-scoring
-    checkpoint (by ROC-AUC, else accuracy). Returns that best state dict."""
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config.learning_rate,
@@ -88,7 +81,6 @@ def _fit(
     model.load_state_dict(best_state)
     return best_state
 
-
 def _split_dataset(
     dataset: ManifestDataset, val_fraction: float, seed: int
 ) -> tuple[Subset, Subset]:
@@ -99,7 +91,6 @@ def _split_dataset(
         indices, test_size=val_fraction, random_state=seed, stratify=stratify
     )
     return Subset(dataset, train_idx.tolist()), Subset(dataset, val_idx.tolist())
-
 
 @torch.no_grad()
 def evaluate(
@@ -123,16 +114,11 @@ def evaluate(
         metrics["roc_auc"] = float(roc_auc_score(all_labels, all_probs))
     return metrics
 
-
 def train(
     manifest_path: str | Path,
     config: TrainConfig | None = None,
     model_path: str | Path = DEFAULT_MODEL_PATH,
 ) -> dict[str, float]:
-    """Train the 3D CNN on a manifest and save a checkpoint.
-
-    Returns the final validation metrics.
-    """
     config = config or TrainConfig()
     _set_seed(config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -164,7 +150,6 @@ def train(
     )
     print(f"Saved model to {model_path} | final val {final_metrics}")
     return final_metrics
-
 
 @torch.no_grad()
 def evaluate_multimodal(
@@ -198,13 +183,11 @@ def evaluate_multimodal(
             )
     return metrics
 
-
 def train_multimodal(
     manifest_path: str | Path,
     config: TrainConfig | None = None,
     model_path: str | Path = DEFAULT_MULTIMODAL_MODEL_PATH,
 ) -> dict[str, float]:
-    """Train the multimodal (MRI + clinical) model and save a checkpoint."""
     config = config or TrainConfig()
     _set_seed(config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -247,7 +230,6 @@ def train_multimodal(
     print(f"Saved multimodal model to {model_path} | final val {final_metrics}")
     return final_metrics
 
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the WMD 3D CNN")
     parser.add_argument("--manifest", required=True, help="Path to manifest CSV")
@@ -261,7 +243,6 @@ def _parse_args() -> argparse.Namespace:
         help="Train the MRI + clinical fusion model (manifest needs clinical columns)",
     )
     return parser.parse_args()
-
 
 def main() -> None:
     args = _parse_args()
@@ -277,7 +258,6 @@ def main() -> None:
     else:
         model_path = args.model_path or str(DEFAULT_MODEL_PATH)
         train(args.manifest, config=config, model_path=model_path)
-
 
 if __name__ == "__main__":
     main()

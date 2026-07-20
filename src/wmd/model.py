@@ -1,17 +1,9 @@
-"""3D CNN architecture for white matter disease classification."""
-
 from __future__ import annotations
 
 import torch
 from torch import nn
 
-
 class ConvBlock(nn.Module):
-    """Conv3d -> GroupNorm -> ReLU -> MaxPool.
-
-    GroupNorm (instead of BatchNorm) keeps train/eval behaviour consistent with
-    the small batch sizes typical of 3D MRI training on limited hardware.
-    """
 
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
@@ -26,13 +18,7 @@ class ConvBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block(x)
 
-
 class WMDClassifier3D(nn.Module):
-    """A compact 3D CNN for binary/multi-class volume classification.
-
-    Designed to be trainable on CPU for demos while remaining a sensible
-    starting point for real GPU training on FLAIR MRI volumes.
-    """
 
     def __init__(self, num_classes: int = 2, in_channels: int = 1) -> None:
         super().__init__()
@@ -43,9 +29,6 @@ class WMDClassifier3D(nn.Module):
             ConvBlock(16, 32),
             ConvBlock(32, 64),
         )
-        # Global MAX pooling makes the head independent of the input size and,
-        # crucially, is sensitive to small bright focal lesions (white-matter
-        # hyperintensities) that average pooling would wash out.
         self.pool = nn.AdaptiveMaxPool3d(1)
         self.classifier = nn.Sequential(
             nn.Flatten(),
@@ -56,7 +39,6 @@ class WMDClassifier3D(nn.Module):
         )
 
     def embed(self, x: torch.Tensor) -> torch.Tensor:
-        """Return the pooled image feature embedding (batch, 64)."""
         x = self.features(x)
         x = self.pool(x)
         return torch.flatten(x, 1)
@@ -66,18 +48,9 @@ class WMDClassifier3D(nn.Module):
         x = self.pool(x)
         return self.classifier(x)
 
-
 IMAGE_EMBED_DIM = 64
 
-
 class MultimodalWMDClassifier(nn.Module):
-    """Fuses the 3D-CNN image embedding with clinical questionnaire features.
-
-    Late-fusion: the MRI volume is encoded into a 64-d embedding, the clinical
-    vector through a small MLP, and the two are concatenated before a shared head
-    produces the final logits. The image and clinical branches can be ablated
-    independently (by zeroing one input) to attribute the prediction.
-    """
 
     def __init__(
         self,
@@ -121,10 +94,8 @@ class MultimodalWMDClassifier(nn.Module):
         fused = torch.cat([img, clin], dim=1)
         return self.head(fused)
 
-
 def build_model(num_classes: int = 2) -> WMDClassifier3D:
     return WMDClassifier3D(num_classes=num_classes)
-
 
 def build_multimodal_model(
     num_clinical_features: int, num_classes: int = 2

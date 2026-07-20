@@ -1,27 +1,3 @@
-"""Train NeuroPredict on real MRI data (e.g. MICCAI WMH Challenge).
-
-This is the real-data counterpart to ``train_demo.py``. It trains the
-image-only binary detection model on a manifest produced by
-``prepare_wmh_data.py`` and evaluates on a separate held-out test manifest.
-
-Usage::
-
-    # 1. Prepare the datasets (one-time)
-    python scripts/prepare_wmh_data.py --wmh-root /path/to/WMH/training \\
-        --out-dir data/wmh_train --threshold-ml 5.0
-    python scripts/prepare_wmh_data.py --wmh-root /path/to/WMH/test \\
-        --out-dir data/wmh_test --threshold-ml 5.0
-
-    # 2. Train + evaluate
-    python scripts/train_real.py \\
-        --train-manifest data/wmh_train/manifest.csv \\
-        --test-manifest  data/wmh_test/manifest.csv
-
-The trained model is saved to ``models/wmd_cnn_real.pt`` and the
-performance report (confusion matrix + metrics) is written to
-``models/performance_real.json``.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -31,69 +7,39 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-from sklearn.metrics import (  # noqa: E402
+import numpy as np
+import torch
+from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
     roc_auc_score,
 )
-from torch import nn  # noqa: E402
-from torch.utils.data import DataLoader, Dataset  # noqa: E402
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
 
-from wmd.config import (  # noqa: E402
+from wmd.config import (
     CLASS_NAMES,
     MODELS_DIR,
     PreprocessConfig,
     TrainConfig,
 )
-from wmd.dataset import ManifestDataset  # noqa: E402
-from wmd.model import build_model  # noqa: E402
+from wmd.dataset import ManifestDataset
+from wmd.model import build_model
 
 DEFAULT_REAL_MODEL_PATH = MODELS_DIR / "wmd_cnn_real.pt"
-
 
 def add_salt_and_pepper(
     volume: torch.Tensor, amount: float, rng: np.random.Generator
 ) -> torch.Tensor:
-    """Corrupt a fraction of voxels with pure-white/pure-black impulse noise.
-
-    "Salt" voxels are forced to 1.0 (max intensity), "pepper" voxels to 0.0.
-    Training with this noise teaches the model to ignore isolated specks
-    (which mimic small hyperintensities) instead of treating them as lesions,
-    making it robust to the noisy scans and film-digitizer captures it will
-    see in the real world.
-
-    Args:
-        volume: Tensor (1, D, H, W) in [0, 1].
-        amount: Fraction of voxels to corrupt (half salt, half pepper).
-        rng: Random generator.
-    """
     if amount <= 0.0:
         return volume
     noise = torch.from_numpy(rng.random(volume.shape).astype(np.float32))
     volume = volume.clone()
-    volume[noise < amount / 2.0] = 0.0  # pepper
-    volume[noise > 1.0 - amount / 2.0] = 1.0  # salt
+    volume[noise < amount / 2.0] = 0.0
+    volume[noise > 1.0 - amount / 2.0] = 1.0
     return volume
 
-
 class AugmentedDataset(Dataset):
-    """Light 3D augmentation for small MRI training sets.
-
-    Applies random spatial flips (all 3 axes) and a small random intensity
-    scale/shift on the fly. This dramatically reduces overfitting when only a
-    few dozen real scans are available. Augmentation is training-only; the test
-    set is always passed through unchanged.
-
-    When ``strong`` is True, three extra transforms are added -- Gaussian noise,
-    a random intensity gamma, and a small random spatial translation (roll).
-    Together with synthetic pretraining these are what push the real-data
-    detector from ~0.6-0.7 (unstable) to a stable ~0.78 held-out ROC-AUC.
-
-    When ``salt_pepper`` > 0, a random fraction of voxels is also corrupted with
-    salt-and-pepper (impulse) noise so the model learns to be robust to specks.
-    """
 
     def __init__(
         self,
@@ -111,11 +57,10 @@ class AugmentedDataset(Dataset):
         return len(self.base)
 
     def labels(self) -> list[int]:
-        return self.base.labels()  # type: ignore[attr-defined]
+        return self.base.labels()
 
     def __getitem__(self, index: int):
         volume, label = self.base[index]
-        # volume shape: (1, D, H, W)
         for axis in (1, 2, 3):
             if self.rng.random() < 0.5:
                 volume = torch.flip(volume, dims=[axis])
@@ -136,7 +81,6 @@ class AugmentedDataset(Dataset):
             volume = add_salt_and_pepper(volume, amount, self.rng)
         return volume, label
 
-
 def pretrain_on_synthetic(
     target_shape: tuple[int, int, int],
     n_per_class: int = 200,
@@ -144,22 +88,6 @@ def pretrain_on_synthetic(
     seed: int = 123,
     device: torch.device | None = None,
 ) -> dict:
-    """Pretrain the detector on synthetic bright-lesion brains (transfer learning).
-
-    Real WMH training data is tiny (~60 scans), so a from-scratch 3D CNN is
-    unstable and lands anywhere from ~0.6 to ~0.72 ROC-AUC depending on the seed.
-    Pretraining first on a large, cheap set of *synthetic* volumes -- smooth
-    ellipsoidal "brains" that are either healthy or carry a few bright blobs
-    mimicking hyperintensities -- teaches the convolutional filters to detect
-    bright focal lesions before they ever see a real scan. Fine-tuning from these
-    weights lifts the held-out real-data ROC-AUC to a stable ~0.78.
-
-    The synthetic data is generated independently of the real train/test scans,
-    so this does not leak any information about the evaluation set.
-
-    Returns a ``state_dict`` suitable for ``model.load_state_dict`` before
-    fine-tuning on real data.
-    """
     from wmd.preprocessing import preprocess_volume
     from wmd.synthetic import make_volume
 
@@ -200,13 +128,11 @@ def pretrain_on_synthetic(
         print(f"  pretrain epoch {epoch:02d}/{epochs} | loss={running / n:.4f}")
     return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
 
 @torch.no_grad()
 def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device):
@@ -219,7 +145,6 @@ def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device):
         all_probs.extend(probs[:, 1].tolist())
     return all_labels, all_preds, all_probs
 
-
 def train_real(
     train_manifest: str | Path,
     test_manifest: str | Path | None = None,
@@ -230,34 +155,20 @@ def train_real(
     strong_aug: bool = False,
     pretrain_synthetic: int = 0,
 ) -> dict:
-    """Train the image-only detection model on real MRI data.
-
-    Args:
-        train_manifest: Path to the training manifest CSV.
-        test_manifest: Path to the held-out test manifest CSV. If None, a
-            random split of the training set is used for validation.
-        config: Training configuration.
-        model_path: Where to save the trained model.
-
-    Returns:
-        Dict with metrics and confusion matrix.
-    """
     config = config or TrainConfig(
         epochs=30, batch_size=4, learning_rate=5e-4, weight_decay=1e-4,
     )
     _set_seed(config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Training data
     full_train = ManifestDataset(train_manifest, preprocess=config.preprocess)
     all_labels = full_train.labels()
 
-    # Test data
     if test_manifest is not None:
         train_ds: Dataset = full_train
         train_label_list = all_labels
         test_ds: Dataset = ManifestDataset(test_manifest, preprocess=config.preprocess)
-        test_labels = test_ds.labels()  # type: ignore[attr-defined]
+        test_labels = test_ds.labels()
     else:
         from sklearn.model_selection import train_test_split
         from torch.utils.data import Subset
@@ -278,7 +189,6 @@ def train_real(
     print(f"Test: {len(test_ds)} scans, "
           f"labels: {dict(zip(*np.unique(test_labels, return_counts=True)))}")
 
-    # Optional class weights to counter label imbalance.
     class_weights = None
     if use_class_weights:
         counts = np.bincount(train_label_list, minlength=len(CLASS_NAMES)).astype(float)
@@ -339,7 +249,6 @@ def train_real(
             best_score = auc
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-    # Final evaluation with best model
     model.load_state_dict(best_state)
     final_y, final_pred, final_prob = _evaluate(model, test_loader, device)
     cm = confusion_matrix(final_y, final_pred, labels=list(range(len(CLASS_NAMES))))
@@ -359,7 +268,6 @@ def train_real(
         "epochs": config.epochs,
     }
 
-    # Save model checkpoint
     model_path = Path(model_path)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -379,7 +287,6 @@ def train_real(
     print(f"Test metrics: {metrics}")
     print(f"Confusion matrix:\n{cm}")
 
-    # Write performance report
     perf = {
         "note": (
             "Metrics computed on the MICCAI WMH Challenge test set "
@@ -404,7 +311,6 @@ def train_real(
     print(f"Wrote performance report to {perf_path}")
 
     return {"metrics": metrics, "confusion_matrix": cm.tolist(), "performance": perf}
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -488,7 +394,6 @@ def main() -> None:
         use_class_weights=args.class_weights, salt_pepper=args.salt_pepper,
         strong_aug=args.strong_aug, pretrain_synthetic=args.pretrain_synthetic,
     )
-
 
 if __name__ == "__main__":
     main()

@@ -1,11 +1,3 @@
-"""PyTorch dataset for MRI volumes described by a manifest CSV.
-
-The manifest is a CSV with at least two columns: `path,label`.
-- `path`: path to a NIfTI file, DICOM file, or DICOM directory (absolute, or
-  relative to the manifest's location).
-- `label`: integer class index (0-based) matching `config.CLASS_NAMES`.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -18,9 +10,7 @@ from .clinical import CLINICAL_FIELD_NAMES, encode_clinical
 from .config import PreprocessConfig
 from .preprocessing import load_and_preprocess
 
-
 class ManifestDataset(Dataset):
-    """Loads (volume_tensor, label) pairs from a manifest CSV."""
 
     def __init__(
         self,
@@ -58,15 +48,7 @@ class ManifestDataset(Dataset):
         volume = load_and_preprocess(path, self.preprocess)
         return volume, label
 
-
 class MultimodalManifestDataset(Dataset):
-    """Loads (volume_tensor, clinical_tensor, label) triples from a manifest CSV.
-
-    The manifest must contain `path`, the clinical questionnaire columns (see
-    ``clinical.CLINICAL_FIELD_NAMES``), and a target column. The target defaults
-    to ``etiology`` (multi-class cause) when present, otherwise ``label``
-    (binary healthy/diseased).
-    """
 
     def __init__(
         self,

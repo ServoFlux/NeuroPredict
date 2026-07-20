@@ -1,5 +1,3 @@
-"""Inference: load a trained checkpoint and predict on a single scan."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,7 +14,6 @@ from .explain import grad_cam, most_salient_axial_index, overlay_cam_on_slice
 from .model import build_model, build_multimodal_model
 from .preprocessing import load_volume, preprocess_volume
 
-
 @dataclass
 class Prediction:
     label: str
@@ -24,18 +21,8 @@ class Prediction:
     confidence: float
     probabilities: dict[str, float]
 
-
 @dataclass
 class ModalityAttribution:
-    """How much each modality contributes to the early-WMD probability.
-
-    All values are P(early white matter disease). Starting from ``baseline``
-    (a neutral reference: no conditions, average age, blank scan), we add one
-    modality at a time. ``image_delta`` is how many probability points the MRI
-    alone moves the prediction from baseline; ``clinical_delta`` likewise for
-    the questionnaire. ``combined`` uses both. The shares split the total
-    movement between the two modalities.
-    """
 
     combined: float
     baseline: float
@@ -44,16 +31,13 @@ class ModalityAttribution:
     image_share: float
     clinical_share: float
 
-
 @dataclass
 class Explanation:
-    """Grad-CAM explanation artifacts for a prediction."""
 
     original_shape: tuple[int, int, int]
     processed_shape: tuple[int, int, int]
     slice_index: int
-    attention_fraction: float  # fraction of the slice the model attends to
-
+    attention_fraction: float
 
 def _save_cam_slice(
     processed: np.ndarray,
@@ -61,8 +45,6 @@ def _save_cam_slice(
     input_png: str | Path,
     overlay_png: str | Path,
 ) -> int:
-    """Save the plain input slice and its Grad-CAM overlay for the most salient
-    axial slice. Returns that slice index."""
     from PIL import Image
 
     z = most_salient_axial_index(cam)
@@ -75,9 +57,7 @@ def _save_cam_slice(
         Image.fromarray(arr).resize((256, 256), Image.NEAREST).save(str(dest))
     return z
 
-
 class WMDPredictor:
-    """Loads a checkpoint once and serves predictions for uploaded scans."""
 
     def __init__(self, model_path: str | Path = DEFAULT_MODEL_PATH) -> None:
         self.model_path = Path(model_path)
@@ -86,7 +66,6 @@ class WMDPredictor:
                 f"Model checkpoint not found at {self.model_path}. "
                 "Train one first (see scripts/train_demo.py)."
             )
-        # weights_only=False: our checkpoint stores config metadata, not just tensors.
         checkpoint = torch.load(str(self.model_path), map_location="cpu", weights_only=False)
         self.class_names: list[str] = checkpoint["class_names"]
         self.preprocess = PreprocessConfig(
@@ -100,7 +79,7 @@ class WMDPredictor:
 
     @torch.no_grad()
     def predict_volume(self, volume: np.ndarray) -> Prediction:
-        tensor = preprocess_volume(volume, self.preprocess)[None]  # (1, 1, D, H, W)
+        tensor = preprocess_volume(volume, self.preprocess)[None]
         logits = self.model(tensor)
         probs = torch.softmax(logits, dim=1)[0].numpy()
         idx = int(probs.argmax())
@@ -123,21 +102,14 @@ class WMDPredictor:
         overlay_png: str | Path,
         input_png: str | Path,
     ) -> Explanation:
-        """Compute a Grad-CAM explanation for ``prediction``.
-
-        Saves two images of the *same* (most-salient) slice: the plain input
-        slice (``input_png``) and the Grad-CAM heatmap overlay (``overlay_png``),
-        so users can directly compare what was fed in vs. where the model looked.
-        This turns the model from a black box into something a user can inspect.
-        """
         volume = load_volume(path)
         original_shape = tuple(int(d) for d in volume.shape)
 
-        tensor = preprocess_volume(volume, self.preprocess)[None]  # (1, 1, D, H, W)
+        tensor = preprocess_volume(volume, self.preprocess)[None]
         tensor.requires_grad_(True)
         cam = grad_cam(self.model, tensor, prediction.label_index)
 
-        processed = tensor.detach()[0, 0].numpy()  # normalized, resampled volume
+        processed = tensor.detach()[0, 0].numpy()
         z = _save_cam_slice(processed, cam, input_png, overlay_png)
         return Explanation(
             original_shape=original_shape,
@@ -146,26 +118,18 @@ class WMDPredictor:
             attention_fraction=float((cam[z] > 0.5).mean()),
         )
 
-
 class _ImageBranchWrapper(nn.Module):
-    """Adapts the multimodal model to grad_cam's single-input interface.
-
-    Fixes the clinical vector so the wrapper behaves like an image-only model,
-    exposing ``.features`` so Grad-CAM hooks the 3D conv stack as usual.
-    """
 
     def __init__(self, mm_model: nn.Module, clinical: torch.Tensor) -> None:
         super().__init__()
         self.mm_model = mm_model
-        self.features = mm_model.features  # type: ignore[attr-defined]
+        self.features = mm_model.features
         self._clinical = clinical
 
     def forward(self, volume: torch.Tensor) -> torch.Tensor:
         return self.mm_model(volume, self._clinical)
 
-
 class MultimodalWMDPredictor:
-    """Loads a multimodal checkpoint and serves MRI + clinical predictions."""
 
     def __init__(
         self, model_path: str | Path = DEFAULT_MULTIMODAL_MODEL_PATH
@@ -197,7 +161,6 @@ class MultimodalWMDPredictor:
         )
 
     def _wmd_signal(self, probs: np.ndarray) -> float:
-        """Probability of *any* white matter disease (1 - P(healthy))."""
         if self._healthy_index is not None:
             return float(1.0 - probs[self._healthy_index])
         return float(probs[-1])
@@ -206,7 +169,6 @@ class MultimodalWMDPredictor:
         return torch.from_numpy(encode_clinical(answers))[None]
 
     def _reference_clinical(self) -> torch.Tensor:
-        """Neutral clinical reference: no conditions, an average adult age."""
         return self._clinical_tensor({"age": 55.0})
 
     @torch.no_grad()
@@ -228,9 +190,6 @@ class MultimodalWMDPredictor:
             probabilities={n: float(p) for n, p in zip(self.class_names, probs)},
         )
 
-        # Attribution: start from a neutral baseline (blank scan + reference
-        # clinical), then add each modality on its own and measure the move in
-        # the overall white-matter-disease probability.
         ref_clin = self._reference_clinical()
         neutral_img = torch.zeros_like(tensor)
 
@@ -267,7 +226,6 @@ class MultimodalWMDPredictor:
         overlay_png: str | Path,
         input_png: str | Path,
     ) -> Explanation:
-        """Grad-CAM on the MRI branch, with the clinical vector held fixed."""
         volume = load_volume(path)
         original_shape = tuple(int(d) for d in volume.shape)
 
@@ -286,9 +244,7 @@ class MultimodalWMDPredictor:
             attention_fraction=float((cam[z] > 0.5).mean()),
         )
 
-
 def save_preview(path: str | Path, out_png: str | Path) -> Path:
-    """Save a mid-axial-slice PNG preview of a scan for display in the UI."""
     from PIL import Image
 
     volume = load_volume(path)

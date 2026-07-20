@@ -1,5 +1,3 @@
-"""Generate a synthetic demo dataset under data/synthetic/."""
-
 from __future__ import annotations
 
 import argparse
@@ -8,9 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from wmd.config import DATA_DIR  # noqa: E402
-from wmd.synthetic import generate_dataset  # noqa: E402
-
+from wmd.config import DATA_DIR
+from wmd.synthetic import generate_dataset
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate synthetic demo MRI data")
@@ -30,7 +27,6 @@ def main() -> None:
         multiclass=args.multiclass,
     )
     print(f"Generated synthetic dataset. Manifest: {manifest}")
-
 
 if __name__ == "__main__":
     main()

@@ -1,15 +1,3 @@
-"""Generate synthetic brain-like MRI volumes for end-to-end demos and tests.
-
-This is a stand-in for real FLAIR MRI data (e.g. OASIS-3 or the MICCAI WMH
-Segmentation Challenge). It produces:
-  - "no_wmd": a smooth ellipsoidal "brain" with mild texture.
-  - "early_wmd": the same brain plus a few small bright blobs that mimic
-    periventricular / deep white matter hyperintensities.
-
-The goal is ONLY to make the full pipeline runnable and demonstrate the model
-learning a signal. It is NOT anatomically realistic and has no clinical meaning.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -19,7 +7,6 @@ import numpy as np
 
 from .clinical import CLINICAL_FIELD_NAMES, make_clinical
 from .config import ETIOLOGY_CLASS_NAMES
-
 
 def _ellipsoid_mask(shape: tuple[int, int, int], rng: np.random.Generator) -> np.ndarray:
     d, h, w = shape
@@ -34,7 +21,6 @@ def _ellipsoid_mask(shape: tuple[int, int, int], rng: np.random.Generator) -> np
     )
     return val <= 1.0
 
-
 def _add_blob(
     volume: np.ndarray,
     center: tuple[int, int, int],
@@ -47,17 +33,14 @@ def _add_blob(
     blob = np.exp(-dist2 / (2 * radius**2)) * intensity
     volume += blob
 
-
 def make_volume(
     label: int,
     shape: tuple[int, int, int] = (64, 64, 64),
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """Create one synthetic volume. label=0 -> healthy, label=1 -> with lesions."""
     rng = rng or np.random.default_rng()
     brain = _ellipsoid_mask(shape, rng).astype(np.float32)
 
-    # Base tissue intensity + smooth low-frequency variation + noise.
     volume = brain * rng.uniform(0.55, 0.7)
     texture = rng.normal(0, 0.03, size=shape).astype(np.float32)
     volume = volume + brain * texture
@@ -68,17 +51,9 @@ def make_volume(
     volume = np.clip(volume, 0.0, None)
     return volume.astype(np.float32)
 
-
 def _add_etiology_lesions(
     volume: np.ndarray, etiology: str, rng: np.random.Generator
 ) -> None:
-    """Add lesions whose spatial pattern loosely reflects the etiology.
-
-    The MRI mainly signals disease-vs-healthy; the *cause* is told apart largely
-    by the clinical/genomic questionnaire. The patterns below give the image a
-    mild, overlapping etiology signal (realistic: imaging alone is rarely
-    cause-specific) so fusion with the clinical data is what pins down the cause.
-    """
     d, h, w = volume.shape
 
     def band(lo: float, hi: float, axis: int) -> int:
@@ -86,40 +61,33 @@ def _add_etiology_lesions(
         return int(rng.integers(int(size * lo), int(size * hi)))
 
     if etiology == "vascular":
-        # Scattered small periventricular / deep spots.
         for _ in range(int(rng.integers(3, 7))):
             center = (band(0.35, 0.65, 0), band(0.35, 0.65, 1), band(0.30, 0.70, 2))
             _add_blob(volume, center, float(rng.uniform(1.5, 2.6)), float(rng.uniform(0.45, 0.65)))
     elif etiology == "autoimmune":
-        # Few ovoid periventricular lesions hugging the midline (MS-like).
         for _ in range(int(rng.integers(2, 5))):
             center = (band(0.40, 0.60, 0), band(0.42, 0.58, 1), band(0.45, 0.55, 2))
             _add_blob(volume, center, float(rng.uniform(2.0, 3.2)), float(rng.uniform(0.5, 0.7)))
     elif etiology == "genetic":
-        # Symmetric anterior lesions in both hemispheres (CADASIL-like).
         for _ in range(int(rng.integers(1, 3))):
             z = band(0.40, 0.60, 0)
             y = band(0.30, 0.45, 1)
             for x in (band(0.25, 0.38, 2), w - band(0.25, 0.38, 2)):
                 _add_blob(volume, (z, y, x), float(rng.uniform(1.8, 2.8)), float(rng.uniform(0.5, 0.68)))
     elif etiology == "metabolic":
-        # Diffuse symmetric scatter of many faint blobs.
         for _ in range(int(rng.integers(6, 11))):
             center = (band(0.30, 0.70, 0), band(0.30, 0.70, 1), band(0.30, 0.70, 2))
             _add_blob(volume, center, float(rng.uniform(1.2, 2.0)), float(rng.uniform(0.35, 0.5)))
     elif etiology == "infectious":
-        # A few larger, patchy asymmetric lesions.
         for _ in range(int(rng.integers(1, 4))):
             center = (band(0.30, 0.70, 0), band(0.30, 0.70, 1), band(0.25, 0.75, 2))
             _add_blob(volume, center, float(rng.uniform(2.6, 4.0)), float(rng.uniform(0.5, 0.72)))
-
 
 def make_etiology_volume(
     etiology: int,
     shape: tuple[int, int, int] = (64, 64, 64),
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """Create a synthetic volume for an etiology index (0 = healthy)."""
     rng = rng or np.random.default_rng()
     brain = _ellipsoid_mask(shape, rng).astype(np.float32)
     volume = brain * rng.uniform(0.55, 0.7)
@@ -133,7 +101,6 @@ def make_etiology_volume(
     volume = np.clip(volume, 0.0, None)
     return volume.astype(np.float32)
 
-
 def generate_dataset(
     out_dir: str | Path,
     n_per_class: int = 40,
@@ -143,22 +110,6 @@ def generate_dataset(
     clinical_noise: float = 0.3,
     multiclass: bool = False,
 ) -> Path:
-    """Generate a balanced synthetic dataset and a manifest CSV.
-
-    When ``with_clinical`` is True the manifest also includes clinical
-    questionnaire columns for multimodal training, plus an ``etiology`` column
-    (0 = no_wmd, then one index per cause). The binary ``label`` column is kept
-    for the image-only model (0 = healthy, 1 = any disease).
-
-    ``multiclass`` generates one balanced group per etiology (vascular,
-    autoimmune, genetic, metabolic, infectious + healthy); otherwise just the
-    binary healthy/diseased split. ``clinical_noise`` is the fraction of
-    subjects whose questionnaire is drawn from a *different* etiology, keeping
-    the clinical signal only partially predictive so the MRI stays the primary
-    disease-vs-healthy signal while the questionnaire mainly resolves the cause.
-
-    Returns the path to the manifest CSV.
-    """
     import nibabel as nib
 
     out_dir = Path(out_dir)
@@ -169,7 +120,7 @@ def generate_dataset(
     if multiclass:
         etiologies = list(range(len(ETIOLOGY_CLASS_NAMES)))
     else:
-        etiologies = [0, 1]  # no_wmd, vascular (binary healthy/diseased)
+        etiologies = [0, 1]
     n_etiologies = len(ETIOLOGY_CLASS_NAMES)
 
     rows: list[list[object]] = []

@@ -1,21 +1,3 @@
-"""Hardware-free simulator for the Archive MRI digitizer.
-
-Renders an MRI volume as a contact-sheet image (what a film sheet looks like)
-and POSTs it to the running web app's ``/ingest/film`` endpoint -- exactly what
-the ESP32-CAM does after photographing a real film sheet. Lets you exercise the
-whole pipeline before any hardware arrives.
-
-Examples:
-    # Use a synthetic "genetic" volume, post to a local server:
-    python iot/simulate_digitizer.py --etiology genetic --age 52
-
-    # Digitize an existing scan file instead:
-    python iot/simulate_digitizer.py --source data/synthetic/volumes/vascular_000.nii.gz
-
-    # Just save the film-sheet image (no server needed):
-    python iot/simulate_digitizer.py --etiology vascular --save sheet.png --no-post
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -31,9 +13,8 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from wmd.config import ETIOLOGY_CLASS_NAMES  # noqa: E402
-from wmd.filmscan import contact_sheet_from_volume  # noqa: E402
-
+from wmd.config import ETIOLOGY_CLASS_NAMES
+from wmd.filmscan import contact_sheet_from_volume
 
 def _load_volume(args: argparse.Namespace) -> np.ndarray:
     if args.source:
@@ -46,9 +27,7 @@ def _load_volume(args: argparse.Namespace) -> np.ndarray:
     rng = np.random.default_rng(args.seed)
     return make_etiology_volume(etiology, rng=rng)
 
-
 def _encode_multipart(fields: dict[str, str], image_bytes: bytes, image_name: str):
-    """Build a multipart/form-data body using only the standard library."""
     boundary = f"----neuropredict{uuid.uuid4().hex}"
     crlf = "\r\n"
     body = io.BytesIO()
@@ -69,7 +48,6 @@ def _encode_multipart(fields: dict[str, str], image_bytes: bytes, image_name: st
     body.write(f"--{boundary}--{crlf}".encode())
 
     return body.getvalue(), f"multipart/form-data; boundary={boundary}"
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -114,12 +92,11 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=60) as resp:
             print(f"POST {url} -> {resp.status}")
             print(resp.read().decode())
-    except Exception as exc:  # noqa: BLE001 - simple CLI feedback
+    except Exception as exc:
         print(f"Request failed: {exc}")
         print("Is the server running?  uvicorn webapp.main:app --port 8000")
         return 1
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

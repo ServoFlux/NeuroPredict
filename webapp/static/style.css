@@ -115,7 +115,6 @@ code {
 .btn:active { transform: translateY(1px); }
 .btn:disabled, .btn.is-loading { cursor: progress; opacity: 0.85; }
 
-/* Spinner inside the submit button (hidden until the form is submitting). */
 .spinner {
     display: none;
     width: 16px;
@@ -129,7 +128,6 @@ code {
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
 
-/* Drag-and-drop file picker. */
 .dropzone {
     position: relative;
     display: flex;
@@ -287,7 +285,6 @@ code {
     text-align: center;
 }
 
-/* --- Multimodal: questionnaire form --- */
 .form-section-title { margin: 1.5rem 0 0.25rem; }
 .questionnaire {
     display: grid;
@@ -305,7 +302,6 @@ code {
 }
 .q-check input { width: 18px; height: 18px; accent-color: var(--accent); }
 
-/* --- Plain-language help tooltips on questionnaire items --- */
 .help-icon {
     flex: 0 0 auto;
     display: inline-flex;
@@ -373,7 +369,6 @@ code {
     width: 140px;
 }
 
-/* --- Multimodal: contribution bar + ablation --- */
 .contrib-bar {
     display: flex;
     height: 34px;
@@ -425,7 +420,6 @@ code {
     font-size: 0.95rem;
 }
 
-/* --- Small screens --- */
 @media (max-width: 560px) {
     .site-header { justify-content: center; text-align: center; }
     .site-nav { width: 100%; justify-content: center; }

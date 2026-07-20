@@ -1,9 +1,3 @@
-"""FastAPI web interface for WMD prediction (multimodal: MRI + clinical).
-
-Run from the project root:
-    uvicorn webapp.main:app --reload --port 8000
-"""
-
 from __future__ import annotations
 
 import os
@@ -20,20 +14,19 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-# Make the `wmd` package importable when running from the project root.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from wmd.clinical import CATEGORY_ORDER, CLINICAL_FIELDS  # noqa: E402
-from wmd.config import (  # noqa: E402
+from wmd.clinical import CATEGORY_ORDER, CLINICAL_FIELDS
+from wmd.config import (
     DEFAULT_MULTIMODAL_MODEL_PATH,
     ETIOLOGY_LABELS,
     ETIOLOGY_NEXT_STEPS,
     RESEARCH_DISCLAIMER,
     assess_severity,
 )
-from wmd.filmscan import grid_shape_for_depth, volume_from_contact_sheet  # noqa: E402
-from wmd.inference import MultimodalWMDPredictor  # noqa: E402
+from wmd.filmscan import grid_shape_for_depth, volume_from_contact_sheet
+from wmd.inference import MultimodalWMDPredictor
 
 WEBAPP_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = WEBAPP_DIR / "uploads"
@@ -44,22 +37,12 @@ PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_SUFFIXES = (".nii", ".nii.gz", ".dcm", ".ima")
 FILM_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
-# Grad-CAM preview images are written so the browser can display them, but they
-# contain brain slices, so we do not keep them around. Each prediction sweeps
-# the preview directory and deletes files older than this many seconds -- long
-# enough for the result page (and its images) to load, then gone.
 PREVIEW_TTL_SECONDS = 600
 
-# Optional shared secret for the device endpoint. If set (via environment), the
-# ESP32-CAM must send a matching `X-API-Key` header (or `api_key` form field) to
-# POST to /ingest/film. If unset, the endpoint stays open for local demos.
 INGEST_API_KEY = os.getenv("NEUROPREDICT_API_KEY")
 
-# Latest digitized film result, surfaced on the /digitizer dashboard so a device
-# capture is visible without a browser upload. Resets on restart.
 _latest_digitized: dict[str, object] = {"label_pretty": None, "wmd_pct": None, "ts": None}
 
-# Human-friendly display names for the model's class labels.
 PRETTY_LABELS = {
     "no_wmd": "No White Matter Disease",
     "early_wmd": "Early White Matter Disease",
@@ -68,15 +51,12 @@ PRETTY_LABELS = {
 
 _TRUTHY = {"1", "on", "true", "yes"}
 
-
 def _pretty(label: str) -> str:
     return PRETTY_LABELS.get(label, label.replace("_", " ").title())
-
 
 app = FastAPI(title="NeuroPredict — Early White Matter Disease Risk Prediction")
 app.mount("/static", StaticFiles(directory=str(WEBAPP_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(WEBAPP_DIR / "templates"))
-
 
 def _load_predictor() -> MultimodalWMDPredictor | None:
     try:
@@ -84,12 +64,9 @@ def _load_predictor() -> MultimodalWMDPredictor | None:
     except FileNotFoundError:
         return None
 
-
 predictor = _load_predictor()
 
-
 def _clinical_groups_for_template() -> list[dict[str, object]]:
-    """Group questionnaire fields by category for rendering."""
     groups: list[dict[str, object]] = []
     for category in CATEGORY_ORDER:
         fields = [
@@ -101,12 +78,10 @@ def _clinical_groups_for_template() -> list[dict[str, object]]:
             groups.append({"category": category, "fields": fields})
     return groups
 
-
 def _parse_clinical(form: object) -> dict[str, float]:
-    """Build a clinical answer dict from submitted form data."""
     answers: dict[str, float] = {}
     for field in CLINICAL_FIELDS:
-        raw = form.get(field.name)  # type: ignore[attr-defined]
+        raw = form.get(field.name)
         if field.kind == "age":
             try:
                 answers[field.name] = float(raw) if raw not in (None, "") else 0.0
@@ -116,11 +91,9 @@ def _parse_clinical(form: object) -> dict[str, float]:
             answers[field.name] = 1.0 if str(raw).lower() in _TRUTHY else 0.0
     return answers
 
-
 def _has_suffix(filename: str, suffixes: tuple[str, ...]) -> bool:
     name = filename.lower()
     return any(name.endswith(suffix) for suffix in suffixes)
-
 
 def _parse_int(raw: object, default: int) -> int:
     try:
@@ -128,13 +101,7 @@ def _parse_int(raw: object, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
-
 def _cleanup_old_previews(max_age_seconds: int = PREVIEW_TTL_SECONDS) -> None:
-    """Delete Grad-CAM preview images older than the TTL.
-
-    Keeps brain-slice images from lingering on disk after a prediction while
-    still giving the result page time to load them.
-    """
     now = time.time()
     for preview in PREVIEW_DIR.glob("*.png"):
         try:
@@ -143,18 +110,11 @@ def _cleanup_old_previews(max_age_seconds: int = PREVIEW_TTL_SECONDS) -> None:
         except OSError:
             pass
 
-
 def _ingest_key_ok(request: Request, form: object) -> bool:
-    """Check the device endpoint's optional shared secret.
-
-    Returns True when no key is configured (open demo mode) or when the request
-    presents the matching key via the `X-API-Key` header or an `api_key` field.
-    """
     if not INGEST_API_KEY:
         return True
-    provided = request.headers.get("x-api-key") or form.get("api_key")  # type: ignore[attr-defined]
+    provided = request.headers.get("x-api-key") or form.get("api_key")
     return provided == INGEST_API_KEY
-
 
 @app.get("/health")
 def health() -> dict[str, object]:
@@ -163,7 +123,6 @@ def health() -> dict[str, object]:
         "model_loaded": predictor is not None,
         "model_path": str(DEFAULT_MULTIMODAL_MODEL_PATH),
     }
-
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
@@ -179,7 +138,6 @@ def index(request: Request) -> HTMLResponse:
         },
     )
 
-
 def _empty_context(filename: str | None = None) -> dict[str, object]:
     return {
         "disclaimer": RESEARCH_DISCLAIMER,
@@ -193,15 +151,9 @@ def _empty_context(filename: str | None = None) -> dict[str, object]:
         "filename": filename,
     }
 
-
 def _run_prediction(
     saved_path: Path, answers: dict[str, float], filename: str, token: str
 ) -> dict[str, object]:
-    """Predict + explain a saved volume and build the result template context.
-
-    Shared by the standard scan-upload flow and the Archive Digitizer flow so
-    both render the identical result page (probabilities, Grad-CAM, next steps).
-    """
     ctx = _empty_context(filename)
     if predictor is None:
         ctx["error"] = (
@@ -272,17 +224,14 @@ def _run_prediction(
     )
     return ctx
 
-
 def _film_to_volume_path(
     image_path: Path, token: str, cols: int, depth: int
 ) -> Path:
-    """Reconstruct a NIfTI volume from a photographed film sheet on disk."""
     rows, cols = grid_shape_for_depth(depth, cols)
     volume = volume_from_contact_sheet(image_path, rows=rows, cols=cols, depth=depth)
     nii_path = UPLOAD_DIR / f"{token}.nii.gz"
     nib.save(nib.Nifti1Image(volume.astype(np.float32), affine=np.eye(4)), str(nii_path))
     return nii_path
-
 
 @app.post("/predict", response_class=HTMLResponse)
 async def predict(request: Request) -> HTMLResponse:
@@ -307,7 +256,7 @@ async def predict(request: Request) -> HTMLResponse:
 
     try:
         ctx = _run_prediction(saved_path, answers, filename, token)
-    except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
+    except Exception as exc:
         ctx = _empty_context(filename)
         ctx["error"] = f"Could not process this scan: {exc}"
     finally:
@@ -315,10 +264,8 @@ async def predict(request: Request) -> HTMLResponse:
 
     return templates.TemplateResponse(request, "result.html", ctx)
 
-
 @app.get("/digitizer", response_class=HTMLResponse)
 def digitizer(request: Request) -> HTMLResponse:
-    """Archive MRI digitizer: photograph a film sheet -> reconstruct -> predict."""
     return templates.TemplateResponse(
         request,
         "digitizer.html",
@@ -330,10 +277,8 @@ def digitizer(request: Request) -> HTMLResponse:
         },
     )
 
-
 @app.post("/digitizer", response_class=HTMLResponse)
 async def digitizer_submit(request: Request) -> HTMLResponse:
-    """Browser flow: upload a photo of a film sheet and run the prediction."""
     form = await request.form()
     sheet = form.get("sheet")
     filename = getattr(sheet, "filename", None)
@@ -357,7 +302,7 @@ async def digitizer_submit(request: Request) -> HTMLResponse:
     try:
         nii_path = _film_to_volume_path(photo_path, token, cols, depth)
         ctx = _run_prediction(nii_path, answers, f"{filename} (digitized film)", token)
-    except Exception as exc:  # noqa: BLE001 - surface any decode/inference error
+    except Exception as exc:
         ctx = _empty_context(filename)
         ctx["error"] = f"Could not reconstruct this film sheet: {exc}"
     finally:
@@ -367,14 +312,8 @@ async def digitizer_submit(request: Request) -> HTMLResponse:
 
     return templates.TemplateResponse(request, "result.html", ctx)
 
-
 @app.post("/ingest/film")
 async def ingest_film(request: Request) -> JSONResponse:
-    """Device endpoint: the ESP32-CAM POSTs a film-sheet photo (+ grid info).
-
-    Reconstructs the volume and returns the prediction as JSON, so the device
-    can show a result and the /digitizer dashboard can reflect the latest capture.
-    """
     if predictor is None:
         return JSONResponse({"ok": False, "error": "model not loaded"}, status_code=503)
 
@@ -404,7 +343,7 @@ async def ingest_film(request: Request) -> JSONResponse:
     try:
         nii_path = _film_to_volume_path(photo_path, token, cols, depth)
         prediction, attr = predictor.predict_path(nii_path, answers)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     finally:
         photo_path.unlink(missing_ok=True)
@@ -429,9 +368,7 @@ async def ingest_film(request: Request) -> JSONResponse:
         }
     )
 
-
 def _summarize_answers(answers: dict[str, float]) -> list[dict[str, str]]:
-    """Human-readable summary of the questionnaire for the result page."""
     summary: list[dict[str, str]] = []
     for field in CLINICAL_FIELDS:
         val = answers.get(field.name, 0.0)

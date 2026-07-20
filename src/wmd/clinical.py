@@ -1,49 +1,25 @@
-"""Clinical questionnaire features for the multimodal WMD model.
-
-The *cause* (etiology) of white matter disease is often distinguished more by
-clinical history and genetics than by the MRI alone. This module defines the
-questionnaire schema, encodes answers into a fixed-length feature vector, and
-generates synthetic answers whose profile depends on the etiology, so the
-multimodal model has a meaningful clinical/genomic signal to fuse with the scan.
-
-Etiologies (see ``ETIOLOGY_CLASS_NAMES`` in config):
-  - vascular: small-vessel disease (hypertension, diabetes, age, prior stroke)
-  - autoimmune: e.g. multiple sclerosis (younger, autoimmune history)
-  - genetic: e.g. CADASIL/CARASIL (NOTCH3/HTRA1/COL4A1, family history)
-  - metabolic: e.g. leukodystrophy / B12 deficiency (metabolic disorder, MTHFR)
-  - infectious: e.g. HIV / Lyme / PML (CNS infection history)
-
-Research/educational only -- these correlations are illustrative, not clinical.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import numpy as np
 
-
 @dataclass(frozen=True)
 class ClinicalField:
-    """One questionnaire item."""
 
     name: str
-    label: str  # human-readable question for the UI
-    kind: str  # "binary" or "age"
-    category: str = "History"  # UI grouping
-    help: str = ""  # plain-language explanation shown as a tooltip in the UI
+    label: str
+    kind: str
+    category: str = "History"
+    help: str = ""
 
-
-# Order in which categories are rendered in the UI.
 CATEGORY_ORDER: tuple[str, ...] = ("Demographics", "History", "Symptoms", "Genomic")
 
-# Order matters: it defines the feature-vector layout and must stay stable.
 CLINICAL_FIELDS: tuple[ClinicalField, ...] = (
     ClinicalField(
         "age", "Age (years)", "age", "Demographics",
         help="The patient's age in years. White matter disease becomes more common with age, so this is one of the strongest clues.",
     ),
-    # --- Medical history / risk factors ---
     ClinicalField(
         "hypertension", "High blood pressure (hypertension)", "binary", "History",
         help="Has a doctor said the patient has high blood pressure, or are they on blood-pressure medication? High blood pressure slowly damages the brain's small blood vessels.",
@@ -76,7 +52,6 @@ CLINICAL_FIELDS: tuple[ClinicalField, ...] = (
         "metabolic_disorder", "Known metabolic disorder (e.g. B12 deficiency, leukodystrophy)", "binary", "History",
         help="A metabolic disorder is a problem with how the body processes nutrients or chemicals — e.g. severe vitamin B12 deficiency, or an inherited condition called leukodystrophy.",
     ),
-    # --- Symptoms ---
     ClinicalField(
         "memory_problems", "Memory problems", "binary", "Symptoms",
         help="Does the patient have trouble remembering recent events, names, or appointments — more than normal forgetfulness?",
@@ -101,7 +76,6 @@ CLINICAL_FIELDS: tuple[ClinicalField, ...] = (
         "urinary_incontinence", "Urinary incontinence", "binary", "Symptoms",
         help="Does the patient have trouble controlling their bladder (leaking urine or sudden urges)? This can be a sign when brain pathways are affected.",
     ),
-    # --- Genomic markers ---
     ClinicalField(
         "apoe4_carrier", "APOE \u03b54 carrier", "binary", "Genomic",
         help="A version of the APOE gene that raises the risk of Alzheimer's and vascular brain disease. You only know this from a DNA/genetic test — leave it unchecked if the patient has never had one.",
@@ -135,16 +109,14 @@ CLINICAL_FIELDS: tuple[ClinicalField, ...] = (
 NUM_CLINICAL_FEATURES = len(CLINICAL_FIELDS)
 CLINICAL_FIELD_NAMES: tuple[str, ...] = tuple(f.name for f in CLINICAL_FIELDS)
 
-_AGE_SCALE = 100.0  # normalize age into roughly [0, 1]
+_AGE_SCALE = 100.0
 
-# Per-etiology synthetic profile: an integer age range and the prevalence of
-# each binary field. Fields not listed fall back to ``_BASELINE_P``.
 _BASELINE_P = 0.07
 
 _ETIOLOGY_PROFILES: dict[str, dict[str, object]] = {
     "no_wmd": {
         "age": (40, 66),
-        "fields": {},  # everything stays at baseline
+        "fields": {},
         "baseline": 0.04,
     },
     "vascular": {
@@ -195,12 +167,7 @@ _ETIOLOGY_PROFILES: dict[str, dict[str, object]] = {
     },
 }
 
-
 def encode_clinical(answers: dict[str, float]) -> np.ndarray:
-    """Encode a questionnaire answer dict into a fixed-length float32 vector.
-
-    Missing fields default to 0 (age 0). Binary fields are coerced to 0/1.
-    """
     vec = np.zeros(NUM_CLINICAL_FEATURES, dtype=np.float32)
     for i, field in enumerate(CLINICAL_FIELDS):
         raw = answers.get(field.name)
@@ -212,23 +179,16 @@ def encode_clinical(answers: dict[str, float]) -> np.ndarray:
             vec[i] = 1.0 if float(raw) >= 0.5 else 0.0
     return vec
 
-
 def make_clinical(
     etiology: int, rng: np.random.Generator | None = None
 ) -> dict[str, float]:
-    """Generate synthetic questionnaire answers for an etiology.
-
-    ``etiology`` is an index into ``ETIOLOGY_CLASS_NAMES`` (0 = no_wmd). For
-    backward compatibility, 0 yields a healthy profile and 1 the vascular
-    profile (the original binary "diseased" case).
-    """
     from .config import ETIOLOGY_CLASS_NAMES
 
     rng = rng or np.random.default_rng()
     name = ETIOLOGY_CLASS_NAMES[etiology]
     profile = _ETIOLOGY_PROFILES[name]
-    age_lo, age_hi = profile["age"]  # type: ignore[misc]
-    field_p: dict[str, float] = profile["fields"]  # type: ignore[assignment]
+    age_lo, age_hi = profile["age"]
+    field_p: dict[str, float] = profile["fields"]
     baseline = float(profile.get("baseline", _BASELINE_P))
 
     answers: dict[str, float] = {}

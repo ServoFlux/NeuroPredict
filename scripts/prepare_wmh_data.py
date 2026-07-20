@@ -1,46 +1,3 @@
-"""Prepare a MICCAI WMH Challenge dataset for NeuroPredict training.
-
-This script reads the WMH Segmentation Challenge directory structure and
-produces a manifest CSV that plugs directly into the existing training code
-(``ManifestDataset`` / ``MultimodalManifestDataset``).
-
-Expected input layout (the standard WMH challenge training set)::
-
-    <wmh_root>/
-        Amsterdam/ (or GE3T/)
-            0/
-                pre/
-                    FLAIR.nii.gz
-                    T1.nii.gz
-                wmh.nii.gz          # radiologist WMH mask
-            1/ ...
-        Singapore/ (or GE15T/)
-            ...
-        Utrecht/ (or UMC/)
-            ...
-
-Each subject gets a binary detection label (0 = low WMH burden, 1 = significant
-WMH) derived by thresholding the total WMH lesion volume. The threshold is
-configurable; the default (``--threshold-ml 1.0``) labels subjects with > 1 mL
-of WMH as *early_wmd*. Subjects below the threshold are labeled *no_wmd*.
-
-Usage::
-
-    python scripts/prepare_wmh_data.py \\
-        --wmh-root /path/to/WMH/training \\
-        --out-dir data/wmh_real \\
-        --threshold-ml 1.0
-
-The output manifest (``data/wmh_real/manifest.csv``) is ready for::
-
-    python -m wmd.train --manifest data/wmh_real/manifest.csv
-
-Note: the WMH challenge data does NOT include clinical questionnaire answers, so
-the manifest has dummy zero values for the clinical columns. The detection
-(image-only) model can train directly; the multimodal cause model will only see
-imaging signal.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -49,17 +6,13 @@ import shutil
 import sys
 from pathlib import Path
 
-# Allow running from the repo root (``python scripts/prepare_wmh_data.py``).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import nibabel as nib  # noqa: E402
-import numpy as np  # noqa: E402
+import nibabel as nib
+import numpy as np
 
-from wmd.clinical import CLINICAL_FIELD_NAMES  # noqa: E402
+from wmd.clinical import CLINICAL_FIELD_NAMES
 
-# ---- Helpers ----------------------------------------------------------------
-
-# Known site directory names in the WMH challenge (training set).
 _SITE_ALIASES: dict[str, str] = {
     "amsterdam": "Amsterdam",
     "ge3t": "Amsterdam",
@@ -69,9 +22,7 @@ _SITE_ALIASES: dict[str, str] = {
     "umc": "Utrecht",
 }
 
-
 def _site_of(subject_dir: Path, wmh_root: Path) -> str:
-    """Infer the acquisition site from the path (first component under root)."""
     try:
         rel = subject_dir.relative_to(wmh_root)
     except ValueError:
@@ -80,28 +31,15 @@ def _site_of(subject_dir: Path, wmh_root: Path) -> str:
         key = part.lower()
         if key in _SITE_ALIASES:
             return _SITE_ALIASES[key]
-    # Fall back to the first path component.
     return rel.parts[0] if rel.parts else "unknown"
 
-
 def _find_subjects(wmh_root: Path) -> list[dict[str, Path]]:
-    """Recursively walk the WMH directory tree and return one dict per subject.
-
-    Robust to the different challenge layouts, e.g. both
-    ``Utrecht/11/pre/FLAIR.nii.gz`` and the extra scanner level in
-    ``Amsterdam/GE3T/137/pre/FLAIR.nii.gz``. A subject is any folder that
-    contains ``pre/FLAIR.nii(.gz)`` and a sibling ``wmh.nii(.gz)`` mask.
-
-    Each dict has keys: ``flair``, ``t1`` (optional), ``mask``, ``site``,
-    ``subject_dir``.
-    """
     subjects: list[dict[str, Path]] = []
     seen: set[Path] = set()
     flair_files = sorted(wmh_root.rglob("FLAIR.nii.gz")) + sorted(
         wmh_root.rglob("FLAIR.nii")
     )
     for flair in flair_files:
-        # Only take the pre-processed FLAIR (skip the raw orig/ copy).
         if flair.parent.name != "pre":
             continue
         subj_dir = flair.parent.parent
@@ -126,23 +64,12 @@ def _find_subjects(wmh_root: Path) -> list[dict[str, Path]]:
         })
     return subjects
 
-
 def _wmh_volume_ml(mask_path: Path) -> float:
-    """Compute total WMH volume in millilitres from a NIfTI mask.
-
-    WMH voxels are labeled 1 in the challenge masks (label 2 = other pathology,
-    which we ignore).
-    """
     img = nib.load(str(mask_path))
     mask = np.asarray(img.dataobj)
     wmh_voxels = int((mask == 1).sum())
-    # Voxel volume from the affine (product of absolute values of the diagonal).
     voxel_vol_mm3 = float(np.abs(np.linalg.det(img.affine[:3, :3])))
-    return wmh_voxels * voxel_vol_mm3 / 1000.0  # mm^3 -> mL
-
-
-# ---- Main -------------------------------------------------------------------
-
+    return wmh_voxels * voxel_vol_mm3 / 1000.0
 
 def prepare(
     wmh_root: Path,
@@ -150,19 +77,6 @@ def prepare(
     threshold_ml: float = 1.0,
     copy_scans: bool = False,
 ) -> Path:
-    """Build a manifest CSV from the WMH challenge directory.
-
-    Args:
-        wmh_root: Path to the WMH challenge training directory.
-        out_dir: Where to write the manifest (and optionally symlink/copy scans).
-        threshold_ml: WMH volume threshold in mL. Subjects above this are
-            labeled ``early_wmd`` (1); at or below are ``no_wmd`` (0).
-        copy_scans: If True, copy FLAIR files into ``out_dir/scans/``. If False
-            (default), the manifest references the original paths.
-
-    Returns:
-        Path to the written manifest CSV.
-    """
     subjects = _find_subjects(wmh_root)
     if not subjects:
         raise SystemExit(
@@ -204,7 +118,6 @@ def prepare(
             "wmh_volume_ml": round(vol_ml, 3),
             "site": subj["site"],
         }
-        # Fill clinical columns with zeros (not available in the WMH dataset).
         for col in CLINICAL_FIELD_NAMES:
             row[col] = 0.0
         rows.append(row)
@@ -225,7 +138,6 @@ def prepare(
             "--threshold-ml so there is a meaningful split."
         )
     return manifest_path
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -251,7 +163,6 @@ def main() -> None:
     )
     args = parser.parse_args()
     prepare(args.wmh_root, args.out_dir, args.threshold_ml, args.copy_scans)
-
 
 if __name__ == "__main__":
     main()

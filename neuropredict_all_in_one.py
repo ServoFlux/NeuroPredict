@@ -1,28 +1,3 @@
-"""NeuroPredict — the entire project condensed into one readable file.
-
-This single file reproduces the whole NeuroPredict *software* pipeline so it can
-be read and explained end to end:
-
-  1. Synthetic brain-MRI generator (a stand-in for real FLAIR MRI).
-  2. Clinical + genomic questionnaire (encodes patient answers into numbers).
-  3. A 3D CNN that detects white matter disease from the MRI.
-  4. A multimodal model that fuses the MRI with the questionnaire to predict the
-     *cause* (vascular / autoimmune / genetic / metabolic / infectious).
-  5. Grad-CAM (a heatmap of where the CNN looked).
-  6. Training on a held-out split, and evaluation with a **confusion matrix**.
-  7. A FastAPI web app: a prediction page and a Model-Performance page that draws
-     both confusion matrices — deployable to Hugging Face Spaces as-is.
-
-The full multi-file project still lives in ``src/`` / ``webapp/``; this file is
-an added, self-contained "read the whole thing in one place" version. It is a
-research/education demo trained on synthetic data — NOT a medical device.
-
-Run it:
-    python neuropredict_all_in_one.py train     # train + print confusion matrix
-    python neuropredict_all_in_one.py serve      # launch the web app on :8000
-    python neuropredict_all_in_one.py            # train (if needed) then serve
-"""
-
 from __future__ import annotations
 
 import sys
@@ -38,14 +13,8 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-# ---------------------------------------------------------------------------
-# 1. CONFIGURATION
-# ---------------------------------------------------------------------------
-
-# Image-only model: is white matter disease present?
 CLASS_NAMES = ("no_wmd", "early_wmd")
 
-# Multimodal model: which *cause*? Index 0 is healthy.
 ETIOLOGY_CLASS_NAMES = (
     "no_wmd", "vascular", "autoimmune", "genetic", "metabolic", "infectious",
 )
@@ -57,7 +26,6 @@ ETIOLOGY_LABELS = {
     "metabolic": "Metabolic (e.g. leukodystrophy, B12 deficiency)",
     "infectious": "Infectious (e.g. HIV, Lyme, PML)",
 }
-# Educational next-steps per cause (NOT medical advice).
 ETIOLOGY_NEXT_STEPS = {
     "no_wmd": ["No disease flagged — not a diagnosis; see a doctor if you have symptoms.",
                "Protect brain health: exercise, good diet, control BP/sugar/cholesterol."],
@@ -80,9 +48,7 @@ RESEARCH_DISCLAIMER = (
     "decision-making. Always consult a qualified clinician."
 )
 
-# Where the trained weights + metrics are cached.
 ARTIFACT_PATH = Path(__file__).resolve().parent / "models" / "all_in_one.pt"
-
 
 @dataclass(frozen=True)
 class TrainConfig:
@@ -93,25 +59,17 @@ class TrainConfig:
     val_fraction: float = 0.2
     seed: int = 42
     shape: tuple[int, int, int] = (48, 48, 48)
-    n_per_class: int = 40           # training samples per etiology
-    test_n_per_class: int = 40      # held-out test samples per etiology
-    test_seed: int = 1234           # different seed => models never see the test set
-
-
-# ---------------------------------------------------------------------------
-# 2. CLINICAL / GENOMIC QUESTIONNAIRE
-# ---------------------------------------------------------------------------
-
+    n_per_class: int = 40
+    test_n_per_class: int = 40
+    test_seed: int = 1234
 
 @dataclass(frozen=True)
 class ClinicalField:
     name: str
     label: str
-    kind: str            # "age" or "binary"
+    kind: str
     category: str = "History"
 
-
-# Order defines the feature-vector layout and must stay stable.
 CLINICAL_FIELDS = (
     ClinicalField("age", "Age (years)", "age", "Demographics"),
     ClinicalField("hypertension", "High blood pressure", "binary", "History"),
@@ -141,7 +99,6 @@ NUM_CLINICAL_FEATURES = len(CLINICAL_FIELDS)
 _AGE_SCALE = 100.0
 _BASELINE_P = 0.07
 
-# Per-cause synthetic profile: an age range and prevalence of each binary field.
 _ETIOLOGY_PROFILES: dict[str, dict[str, object]] = {
     "no_wmd": {"age": (40, 66), "fields": {}, "baseline": 0.04},
     "vascular": {"age": (62, 86), "fields": {
@@ -164,9 +121,7 @@ _ETIOLOGY_PROFILES: dict[str, dict[str, object]] = {
         "low_mood": 0.35, "balance_problems": 0.35, "slow_gait": 0.30}},
 }
 
-
 def encode_clinical(answers: dict[str, float]) -> np.ndarray:
-    """Questionnaire answers -> fixed-length float32 vector (age scaled, others 0/1)."""
     vec = np.zeros(NUM_CLINICAL_FEATURES, dtype=np.float32)
     for i, f in enumerate(CLINICAL_FIELDS):
         raw = answers.get(f.name)
@@ -175,12 +130,10 @@ def encode_clinical(answers: dict[str, float]) -> np.ndarray:
         vec[i] = float(raw) / _AGE_SCALE if f.kind == "age" else (1.0 if float(raw) >= 0.5 else 0.0)
     return vec
 
-
 def make_clinical(etiology: int, rng: np.random.Generator) -> dict[str, float]:
-    """Draw a synthetic questionnaire whose stats depend on the cause index."""
     profile = _ETIOLOGY_PROFILES[ETIOLOGY_CLASS_NAMES[etiology]]
-    age_lo, age_hi = profile["age"]                          # type: ignore[misc]
-    field_p: dict[str, float] = profile["fields"]            # type: ignore[assignment]
+    age_lo, age_hi = profile["age"]
+    field_p: dict[str, float] = profile["fields"]
     baseline = float(profile.get("baseline", _BASELINE_P))
     answers: dict[str, float] = {}
     for f in CLINICAL_FIELDS:
@@ -189,12 +142,6 @@ def make_clinical(etiology: int, rng: np.random.Generator) -> dict[str, float]:
         else:
             answers[f.name] = float(rng.random() < field_p.get(f.name, baseline))
     return answers
-
-
-# ---------------------------------------------------------------------------
-# 3. SYNTHETIC MRI GENERATOR (stand-in for real FLAIR MRI)
-# ---------------------------------------------------------------------------
-
 
 def _ellipsoid(shape: tuple[int, int, int], rng: np.random.Generator) -> np.ndarray:
     d, h, w = shape
@@ -205,20 +152,13 @@ def _ellipsoid(shape: tuple[int, int, int], rng: np.random.Generator) -> np.ndar
            + ((xx - w / 2) / (w * 0.38 * j[2])) ** 2)
     return (val <= 1.0).astype(np.float32)
 
-
 def _add_blob(vol: np.ndarray, center, radius: float, intensity: float) -> None:
     d, h, w = vol.shape
     zz, yy, xx = np.mgrid[0:d, 0:h, 0:w].astype(np.float32)
     dist2 = (zz - center[0]) ** 2 + (yy - center[1]) ** 2 + (xx - center[2]) ** 2
     vol += np.exp(-dist2 / (2 * radius ** 2)) * intensity
 
-
 def _add_lesions(vol: np.ndarray, etiology: str, rng: np.random.Generator) -> None:
-    """Add lesions whose spatial pattern loosely reflects the cause.
-
-    Imaging alone is rarely cause-specific, so these patterns overlap on purpose
-    — the questionnaire is what mainly pins down the cause after fusion.
-    """
     d, h, w = vol.shape
 
     def band(lo, hi, axis):
@@ -246,9 +186,7 @@ def _add_lesions(vol: np.ndarray, etiology: str, rng: np.random.Generator) -> No
             _add_blob(vol, (band(.30, .70, 0), band(.30, .70, 1), band(.25, .75, 2)),
                       float(rng.uniform(2.6, 4.0)), float(rng.uniform(.5, .72)))
 
-
 def make_volume(etiology: int, shape, rng: np.random.Generator) -> np.ndarray:
-    """One synthetic MRI volume for a cause index (0 = healthy)."""
     brain = _ellipsoid(shape, rng)
     vol = brain * rng.uniform(0.55, 0.7) + brain * rng.normal(0, 0.03, size=shape).astype(np.float32)
     name = ETIOLOGY_CLASS_NAMES[etiology]
@@ -256,38 +194,27 @@ def make_volume(etiology: int, shape, rng: np.random.Generator) -> np.ndarray:
         _add_lesions(vol, name, rng)
     return np.clip(vol, 0.0, None).astype(np.float32)
 
-
 def normalize(vol: np.ndarray) -> np.ndarray:
-    """Percentile-clip + scale to [0, 1] (upper bound high so bright lesions survive)."""
     lo, hi = np.percentile(vol, 0.5), np.percentile(vol, 99.9)
     if hi <= lo:
         hi = lo + 1e-5
     return np.clip((vol - lo) / (hi - lo), 0.0, 1.0).astype(np.float32)
 
-
 def make_dataset(cfg: TrainConfig, n_per_class: int, seed: int):
-    """Return (volumes[N,1,D,H,W], clinical[N,F], binary_labels[N], etiology[N])."""
     rng = np.random.default_rng(seed)
     vols, clins, bins, etis = [], [], [], []
     for etiology in range(len(ETIOLOGY_CLASS_NAMES)):
         for _ in range(n_per_class):
-            vols.append(normalize(make_volume(etiology, cfg.shape, rng))[None])  # add channel
+            vols.append(normalize(make_volume(etiology, cfg.shape, rng))[None])
             clins.append(encode_clinical(make_clinical(etiology, rng)))
             bins.append(0 if etiology == 0 else 1)
             etis.append(etiology)
     return (torch.tensor(np.stack(vols)), torch.tensor(np.stack(clins)),
             torch.tensor(bins), torch.tensor(etis))
 
-
-# ---------------------------------------------------------------------------
-# 4. MODELS — 3D CNN and the multimodal (MRI + questionnaire) fusion model
-# ---------------------------------------------------------------------------
-
 IMAGE_EMBED_DIM = 64
 
-
 class ConvBlock(nn.Module):
-    """Conv3d -> GroupNorm -> ReLU -> MaxPool (GroupNorm suits tiny batches)."""
 
     def __init__(self, cin: int, cout: int) -> None:
         super().__init__()
@@ -301,16 +228,14 @@ class ConvBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-
 class WMDClassifier3D(nn.Module):
-    """Compact 3D CNN for the image-only detection task."""
 
     def __init__(self, num_classes: int = 2, in_channels: int = 1) -> None:
         super().__init__()
         self.num_classes = num_classes
         self.features = nn.Sequential(
             ConvBlock(in_channels, 8), ConvBlock(8, 16), ConvBlock(16, 32), ConvBlock(32, 64))
-        self.pool = nn.AdaptiveMaxPool3d(1)  # max pool keeps small bright lesions
+        self.pool = nn.AdaptiveMaxPool3d(1)
         self.classifier = nn.Sequential(
             nn.Flatten(), nn.Dropout(0.3), nn.Linear(64, 32),
             nn.ReLU(inplace=True), nn.Linear(32, num_classes))
@@ -318,9 +243,7 @@ class WMDClassifier3D(nn.Module):
     def forward(self, x):
         return self.classifier(self.pool(self.features(x)))
 
-
 class MultimodalWMDClassifier(nn.Module):
-    """Late-fusion: 3D-CNN image embedding + questionnaire MLP -> shared head."""
 
     def __init__(self, num_clinical_features: int, num_classes: int = 2,
                  in_channels: int = 1, clinical_embed_dim: int = 16) -> None:
@@ -343,18 +266,8 @@ class MultimodalWMDClassifier(nn.Module):
     def forward(self, volume, clinical):
         return self.head(torch.cat([self.image_embedding(volume), self.clinical_encoder(clinical)], dim=1))
 
-
-# ---------------------------------------------------------------------------
-# 5. GRAD-CAM — where did the CNN look?
-# ---------------------------------------------------------------------------
-
-
 def grad_cam(model: MultimodalWMDClassifier, volume: torch.Tensor,
              clinical: torch.Tensor, target: int) -> np.ndarray:
-    """Return a [0,1] heatmap over the volume for the target class.
-
-    Hooks the last conv block: CAM = ReLU(sum_c mean(grad_c) * activation_c).
-    """
     model.eval()
     acts: dict[str, torch.Tensor] = {}
     grads: dict[str, torch.Tensor] = {}
@@ -381,23 +294,15 @@ def grad_cam(model: MultimodalWMDClassifier, volume: torch.Tensor,
         cam = (cam - cam.min()) / (cam.max() - cam.min())
     return cam
 
-
-# ---------------------------------------------------------------------------
-# 6. TRAINING + EVALUATION (with confusion matrix)
-# ---------------------------------------------------------------------------
-
-
 def _set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
-
 
 def _split(n: int, labels, val_fraction: float, seed: int):
     idx = np.arange(n)
     strat = labels if len(set(labels.tolist())) > 1 else None
     tr, va = train_test_split(idx, test_size=val_fraction, random_state=seed, stratify=strat)
     return tr.tolist(), va.tolist()
-
 
 def _run_epoch(model, loader, device, optimizer, criterion, multimodal: bool):
     model.train()
@@ -417,7 +322,6 @@ def _run_epoch(model, loader, device, optimizer, criterion, multimodal: bool):
         total += loss.item() * y.size(0)
     return total / len(loader.dataset)
 
-
 @torch.no_grad()
 def _predict_all(model, loader, device, multimodal: bool):
     model.eval()
@@ -434,9 +338,7 @@ def _predict_all(model, loader, device, multimodal: bool):
         probs.extend(p)
     return labels, preds, np.array(probs)
 
-
 def _report(labels, preds, probs, class_names) -> dict:
-    """Confusion matrix + metrics derived from it."""
     n = len(class_names)
     cm = confusion_matrix(labels, preds, labels=list(range(n)))
     metrics: dict[str, float] = {"accuracy": float(accuracy_score(labels, preds))}
@@ -451,7 +353,6 @@ def _report(labels, preds, probs, class_names) -> dict:
                 labels, probs, multi_class="ovr", average="macro", labels=list(range(n))))
     return {"class_names": list(class_names), "confusion_matrix": cm.tolist(),
             "n_samples": len(labels), "metrics": metrics}
-
 
 def _train_one(model, train_loader, val_loader, device, cfg, multimodal: bool):
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
@@ -469,9 +370,7 @@ def _train_one(model, train_loader, val_loader, device, cfg, multimodal: bool):
     model.load_state_dict(best_state)
     return model
 
-
 def train_everything(cfg: TrainConfig | None = None, save: bool = True) -> dict:
-    """Train both models, evaluate on a held-out test set, return + cache artifacts."""
     cfg = cfg or TrainConfig()
     _set_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -479,21 +378,18 @@ def train_everything(cfg: TrainConfig | None = None, save: bool = True) -> dict:
     vols, clins, bins, etis = make_dataset(cfg, cfg.n_per_class, cfg.seed)
     tr, va = _split(len(vols), etis, cfg.val_fraction, cfg.seed)
 
-    # --- image-only detection model ---
     print("== Training image-only detection CNN ==")
     det = WMDClassifier3D(num_classes=len(CLASS_NAMES)).to(device)
     det_train = DataLoader(TensorDataset(vols[tr], bins[tr]), batch_size=cfg.batch_size, shuffle=True)
     det_val = DataLoader(TensorDataset(vols[va], bins[va]), batch_size=cfg.batch_size)
     det = _train_one(det, det_train, det_val, device, cfg, multimodal=False)
 
-    # --- multimodal cause model ---
     print("== Training multimodal cause model ==")
     mm = MultimodalWMDClassifier(NUM_CLINICAL_FEATURES, num_classes=len(ETIOLOGY_CLASS_NAMES)).to(device)
     mm_train = DataLoader(TensorDataset(vols[tr], clins[tr], etis[tr]), batch_size=cfg.batch_size, shuffle=True)
     mm_val = DataLoader(TensorDataset(vols[va], clins[va], etis[va]), batch_size=cfg.batch_size)
     mm = _train_one(mm, mm_train, mm_val, device, cfg, multimodal=True)
 
-    # --- held-out test set (fresh seed => never seen) ---
     print("== Evaluating on held-out test set ==")
     tv, tc, tb, te = make_dataset(cfg, cfg.test_n_per_class, cfg.test_seed)
     det_labels, det_preds, det_probs = _predict_all(
@@ -517,7 +413,6 @@ def train_everything(cfg: TrainConfig | None = None, save: bool = True) -> dict:
     _print_confusion(performance)
     return artifacts
 
-
 def _print_confusion(performance: dict) -> None:
     for key in ("detection", "etiology"):
         rep = performance[key]
@@ -529,14 +424,7 @@ def _print_confusion(performance: dict) -> None:
         for name, row in zip(names, rep["confusion_matrix"]):
             print(f"  {name:>9} " + " ".join(f"{c:>9}" for c in row))
 
-
-# ---------------------------------------------------------------------------
-# 7. INFERENCE — load the trained models and predict on one patient
-# ---------------------------------------------------------------------------
-
-
 class Predictor:
-    """Loads cached artifacts and predicts detection + cause for one scan."""
 
     def __init__(self, artifacts: dict) -> None:
         self.device = torch.device("cpu")
@@ -567,7 +455,6 @@ class Predictor:
         with torch.no_grad():
             eti_prob = torch.softmax(self.mm(vol_t, clin_t), dim=1).cpu().numpy()[0]
         eti_idx = int(eti_prob.argmax())
-        # Grad-CAM: most salient axial slice for the predicted cause.
         cam = grad_cam(self.mm, vol_t, clin_t, eti_idx)
         salient = int(np.argmax(cam.sum(axis=(1, 2)))) if cam.ndim == 3 else 0
         eti_name = ETIOLOGY_CLASS_NAMES[eti_idx]
@@ -584,9 +471,7 @@ class Predictor:
             "salient_slice": salient,
         }
 
-
 def load_volume_from_bytes(name: str, data: bytes, shape) -> np.ndarray:
-    """Load an uploaded NIfTI file, or fall back to a random synthetic volume."""
     lname = name.lower()
     if lname.endswith((".nii", ".nii.gz")):
         import nibabel as nib
@@ -597,23 +482,15 @@ def load_volume_from_bytes(name: str, data: bytes, shape) -> np.ndarray:
             arr = np.asarray(nib.load(str(tmp)).get_fdata(), dtype=np.float32)
         finally:
             tmp.unlink(missing_ok=True)
-        # resize to model shape with simple nearest-neighbour sampling
         idx = [np.linspace(0, s - 1, t).astype(int) for s, t in zip(arr.shape, shape)]
         return arr[np.ix_(idx[0], idx[1], idx[2])]
     raise ValueError("unsupported file")
-
-
-# ---------------------------------------------------------------------------
-# 8. WEB APP (FastAPI) — prediction page + Model-Performance page
-# ---------------------------------------------------------------------------
-
 
 def _cell_style(count: int, peak: int, diagonal: bool) -> str:
     intensity = round(count / peak, 3) if peak else 0.0
     if diagonal:
         return f"background: rgba(34,197,94,{0.10 + 0.70 * intensity:.3f})"
     return f"background: rgba(56,189,248,{0.06 + 0.74 * intensity:.3f})"
-
 
 def _confusion_html(rep: dict) -> str:
     names = [ETIOLOGY_LABELS.get(n, n) for n in rep["class_names"]]
@@ -639,7 +516,6 @@ def _confusion_html(rep: dict) -> str:
             f"<tr><th class='rowlab'>Actual \\ Predicted</th>{head}</tr></thead>"
             f"<tbody>{rows}</tbody></table></div>")
 
-
 _STYLE = """
 :root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--border:#334155}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
@@ -663,7 +539,6 @@ table.cm th,table.cm td{border:1px solid var(--border);padding:.5rem .7rem;text-
 footer{color:var(--muted);text-align:center;padding:1.5rem;font-size:.85rem}
 """
 
-
 def _page(title: str, body: str) -> str:
     return f"""<!DOCTYPE html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>NeuroPredict — {title}</title>
@@ -673,7 +548,6 @@ def _page(title: str, body: str) -> str:
 <nav class=nav><a href="/">Predict</a><a href="/performance">Model performance</a></nav></header>
 <main class=container>{body}</main>
 <footer><strong>Disclaimer:</strong> {RESEARCH_DISCLAIMER}</footer></body></html>"""
-
 
 def build_app():
     app = FastAPI(title="NeuroPredict (all-in-one)")
@@ -718,7 +592,6 @@ answer the questionnaire, and get a probability, the likely cause, and next step
         for f in CLINICAL_FIELDS:
             raw = form.get(f.name)
             answers[f.name] = float(raw) if (f.kind == "age" and raw) else (1.0 if raw else 0.0)
-        # obtain a volume: uploaded file or synthetic
         volume = None
         scan = form.get("scan")
         if scan is not None and getattr(scan, "filename", ""):
@@ -763,18 +636,10 @@ answer the questionnaire, and get a probability, the likely cause, and next step
 
     return app
 
-
-# FastAPI app object so `uvicorn neuropredict_all_in_one:app` works (e.g. on HF Spaces).
-try:  # pragma: no cover - only when fastapi is installed
+try:
     app = build_app()
-except Exception:  # pragma: no cover
+except Exception:
     app = None
-
-
-# ---------------------------------------------------------------------------
-# 9. COMMAND-LINE ENTRYPOINT
-# ---------------------------------------------------------------------------
-
 
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "auto"
@@ -790,7 +655,6 @@ def main() -> None:
         uvicorn.run(build_app(), host="0.0.0.0", port=8000)
         return
     print(__doc__)
-
 
 if __name__ == "__main__":
     main()
