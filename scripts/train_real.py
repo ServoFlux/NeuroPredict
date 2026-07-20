@@ -134,8 +134,7 @@ def train_real(train_manifest: str | Path, test_manifest: str | Path | None=None
     test_loader = DataLoader(test_ds, batch_size=config.batch_size, shuffle=False)
     model = build_model(num_classes=len(CLASS_NAMES)).to(device)
     if pretrain_synthetic > 0:
-        init_state = pretrain_on_synthetic(config.preprocess.target_shape, n_per_class=pretrain_synthetic, device=device)
-        model.load_state_dict(init_state)
+        model.load_state_dict(pretrain_on_synthetic(config.preprocess.target_shape, n_per_class=pretrain_synthetic, device=device))
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
     criterion = nn.CrossEntropyLoss(weight=class_weights)

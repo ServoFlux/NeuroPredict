@@ -59,11 +59,7 @@ def volume_from_contact_sheet(image: str | Path | np.ndarray, rows: int, cols: i
     cell_h, cell_w = (h // rows, w // cols)
     if cell_h < 2 or cell_w < 2:
         raise ValueError(f'Image {w}x{h} too small to split into a {rows}x{cols} grid')
-    slices: list[np.ndarray] = []
-    for r in range(rows):
-        for c in range(cols):
-            cell = gray[r * cell_h:(r + 1) * cell_h, c * cell_w:(c + 1) * cell_w]
-            slices.append(cell.astype(np.float32))
+    slices: list[np.ndarray] = [gray[r * cell_h:(r + 1) * cell_h, c * cell_w:(c + 1) * cell_w].astype(np.float32) for r in range(rows) for c in range(cols)]
     if depth is not None:
         slices = slices[:max(1, depth)]
     return np.stack(slices, axis=0).astype(np.float32)

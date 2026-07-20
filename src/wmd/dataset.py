@@ -17,12 +17,10 @@ class ManifestDataset(Dataset):
             if reader.fieldnames is None or 'path' not in reader.fieldnames:
                 raise ValueError("Manifest must have a header with a 'path' column")
             for row in reader:
-                raw_path = row['path'].strip()
-                path = Path(raw_path)
+                path = Path(row['path'].strip())
                 if not path.is_absolute():
                     path = (self.base_dir / path).resolve()
-                label = int(row['label'])
-                self.samples.append((path, label))
+                self.samples.append((path, int(row['label'])))
         if not self.samples:
             raise ValueError(f'No samples found in manifest {self.manifest_path}')
     def __len__(self) -> int:
@@ -31,8 +29,7 @@ class ManifestDataset(Dataset):
         return [label for _, label in self.samples]
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
         path, label = self.samples[index]
-        volume = load_and_preprocess(path, self.preprocess)
-        return (volume, label)
+        return (load_and_preprocess(path, self.preprocess), label)
 class MultimodalManifestDataset(Dataset):
     def __init__(self, manifest_path: str | Path, preprocess: PreprocessConfig | None=None, target_column: str | None=None) -> None:
         self.manifest_path = Path(manifest_path)
@@ -53,13 +50,11 @@ class MultimodalManifestDataset(Dataset):
             if missing:
                 raise ValueError(f'Manifest missing clinical columns: {missing}')
             for row in reader:
-                raw_path = row['path'].strip()
-                path = Path(raw_path)
+                path = Path(row['path'].strip())
                 if not path.is_absolute():
                     path = (self.base_dir / path).resolve()
-                label = int(row[target_column])
                 answers = {name: float(row[name]) for name in CLINICAL_FIELD_NAMES}
-                self.samples.append((path, label, answers))
+                self.samples.append((path, int(row[target_column]), answers))
         if not self.samples:
             raise ValueError(f'No samples found in manifest {self.manifest_path}')
     def __len__(self) -> int:
@@ -68,6 +63,4 @@ class MultimodalManifestDataset(Dataset):
         return [label for _, label, _ in self.samples]
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, int]:
         path, label, answers = self.samples[index]
-        volume = load_and_preprocess(path, self.preprocess)
-        clinical = torch.from_numpy(encode_clinical(answers))
-        return (volume, clinical, label)
+        return (load_and_preprocess(path, self.preprocess), torch.from_numpy(encode_clinical(answers)), label)

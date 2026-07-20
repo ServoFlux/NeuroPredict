@@ -18,12 +18,13 @@ def _add_blob(volume: np.ndarray, center: tuple[int, int, int], radius: float, i
     dist2 = (zz - center[0]) ** 2 + (yy - center[1]) ** 2 + (xx - center[2]) ** 2
     blob = np.exp(-dist2 / (2 * radius ** 2)) * intensity
     volume += blob
-def make_volume(label: int, shape: tuple[int, int, int]=(64, 64, 64), rng: np.random.Generator | None=None) -> np.ndarray:
-    rng = rng or np.random.default_rng()
+def _base_brain(shape: tuple[int, int, int], rng: np.random.Generator) -> np.ndarray:
     brain = _ellipsoid_mask(shape, rng).astype(np.float32)
     volume = brain * rng.uniform(0.55, 0.7)
-    texture = rng.normal(0, 0.03, size=shape).astype(np.float32)
-    volume = volume + brain * texture
+    return volume + brain * rng.normal(0, 0.03, size=shape).astype(np.float32)
+def make_volume(label: int, shape: tuple[int, int, int]=(64, 64, 64), rng: np.random.Generator | None=None) -> np.ndarray:
+    rng = rng or np.random.default_rng()
+    volume = _base_brain(shape, rng)
     if label == 1:
         _add_etiology_lesions(volume, 'vascular', rng)
     volume = np.clip(volume, 0.0, None)
@@ -57,10 +58,7 @@ def _add_etiology_lesions(volume: np.ndarray, etiology: str, rng: np.random.Gene
             _add_blob(volume, center, float(rng.uniform(2.6, 4.0)), float(rng.uniform(0.5, 0.72)))
 def make_etiology_volume(etiology: int, shape: tuple[int, int, int]=(64, 64, 64), rng: np.random.Generator | None=None) -> np.ndarray:
     rng = rng or np.random.default_rng()
-    brain = _ellipsoid_mask(shape, rng).astype(np.float32)
-    volume = brain * rng.uniform(0.55, 0.7)
-    texture = rng.normal(0, 0.03, size=shape).astype(np.float32)
-    volume = volume + brain * texture
+    volume = _base_brain(shape, rng)
     name = ETIOLOGY_CLASS_NAMES[etiology]
     if name != 'no_wmd':
         _add_etiology_lesions(volume, name, rng)
@@ -72,10 +70,7 @@ def generate_dataset(out_dir: str | Path, n_per_class: int=40, shape: tuple[int,
     vol_dir = out_dir / 'volumes'
     vol_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
-    if multiclass:
-        etiologies = list(range(len(ETIOLOGY_CLASS_NAMES)))
-    else:
-        etiologies = [0, 1]
+    etiologies = list(range(len(ETIOLOGY_CLASS_NAMES))) if multiclass else [0, 1]
     n_etiologies = len(ETIOLOGY_CLASS_NAMES)
     rows: list[list[object]] = []
     for etiology in etiologies:
@@ -83,15 +78,12 @@ def generate_dataset(out_dir: str | Path, n_per_class: int=40, shape: tuple[int,
             volume = make_etiology_volume(etiology, shape=shape, rng=rng)
             label = 0 if etiology == 0 else 1
             fname = f'{ETIOLOGY_CLASS_NAMES[etiology]}_{i:03d}.nii.gz'
-            fpath = vol_dir / fname
-            nib.save(nib.Nifti1Image(volume, affine=np.eye(4)), str(fpath))
+            nib.save(nib.Nifti1Image(volume, affine=np.eye(4)), str(vol_dir / fname))
             row: list[object] = [str(Path('volumes') / fname), label]
             if multiclass:
                 row.append(etiology)
             if with_clinical:
-                clinical_etiology = etiology
-                if rng.random() < clinical_noise:
-                    clinical_etiology = int(rng.integers(0, n_etiologies))
+                clinical_etiology = int(rng.integers(0, n_etiologies)) if rng.random() < clinical_noise else etiology
                 answers = make_clinical(clinical_etiology, rng=rng)
                 row.extend((answers[name] for name in CLINICAL_FIELD_NAMES))
             rows.append(row)

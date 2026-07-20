@@ -73,8 +73,7 @@ def prepare(wmh_root: Path, out_dir: Path, threshold_ml: float=1.0, copy_scans: 
         else:
             scan_path = str(subj['flair'].resolve())
         row: dict[str, object] = {'path': scan_path, 'label': label, 'wmh_volume_ml': round(vol_ml, 3), 'site': subj['site']}
-        for col in CLINICAL_FIELD_NAMES:
-            row[col] = 0.0
+        row.update({col: 0.0 for col in CLINICAL_FIELD_NAMES})
         rows.append(row)
         print(f'  {subj['site']}/{subj['subject_dir'].name}: WMH={vol_ml:.2f} mL -> {label_name}')
     with manifest_path.open('w', newline='') as fh:

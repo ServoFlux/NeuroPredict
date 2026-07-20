@@ -60,8 +60,7 @@ def _parse_clinical(form: object) -> dict[str, float]:
             answers[field.name] = 1.0 if str(raw).lower() in _TRUTHY else 0.0
     return answers
 def _has_suffix(filename: str, suffixes: tuple[str, ...]) -> bool:
-    name = filename.lower()
-    return any((name.endswith(suffix) for suffix in suffixes))
+    return filename.lower().endswith(suffixes)
 def _parse_int(raw: object, default: int) -> int:
     try:
         return int(float(str(raw)))

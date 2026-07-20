@@ -63,13 +63,12 @@ class WMDPredictor:
         return self.predict_volume(load_volume(path))
     def explain_path(self, path: str | Path, prediction: Prediction, overlay_png: str | Path, input_png: str | Path) -> Explanation:
         volume = load_volume(path)
-        original_shape = tuple((int(d) for d in volume.shape))
         tensor = preprocess_volume(volume, self.preprocess)[None]
         tensor.requires_grad_(True)
         cam = grad_cam(self.model, tensor, prediction.label_index)
         processed = tensor.detach()[0, 0].numpy()
         z = _save_cam_slice(processed, cam, input_png, overlay_png)
-        return Explanation(original_shape=original_shape, processed_shape=tuple((int(d) for d in processed.shape)), slice_index=z, attention_fraction=float((cam[z] > 0.5).mean()))
+        return Explanation(original_shape=tuple((int(d) for d in volume.shape)), processed_shape=tuple((int(d) for d in processed.shape)), slice_index=z, attention_fraction=float((cam[z] > 0.5).mean()))
 class _ImageBranchWrapper(nn.Module):
     def __init__(self, mm_model: nn.Module, clinical: torch.Tensor) -> None:
         super().__init__()
@@ -125,27 +124,22 @@ class MultimodalWMDPredictor:
         return self.predict(load_volume(path), answers)
     def explain_path(self, path: str | Path, answers: dict[str, float], prediction: Prediction, overlay_png: str | Path, input_png: str | Path) -> Explanation:
         volume = load_volume(path)
-        original_shape = tuple((int(d) for d in volume.shape))
         tensor = preprocess_volume(volume, self.preprocess)[None]
         tensor.requires_grad_(True)
-        clinical = self._clinical_tensor(answers)
-        wrapper = _ImageBranchWrapper(self.model, clinical)
+        wrapper = _ImageBranchWrapper(self.model, self._clinical_tensor(answers))
         cam = grad_cam(wrapper, tensor, prediction.label_index)
         processed = tensor.detach()[0, 0].numpy()
         z = _save_cam_slice(processed, cam, input_png, overlay_png)
-        return Explanation(original_shape=original_shape, processed_shape=tuple((int(d) for d in processed.shape)), slice_index=z, attention_fraction=float((cam[z] > 0.5).mean()))
+        return Explanation(original_shape=tuple((int(d) for d in volume.shape)), processed_shape=tuple((int(d) for d in processed.shape)), slice_index=z, attention_fraction=float((cam[z] > 0.5).mean()))
 def save_preview(path: str | Path, out_png: str | Path) -> Path:
     from PIL import Image
     volume = load_volume(path)
-    mid = volume.shape[0] // 2
-    slice2d = volume[mid]
+    slice2d = volume[volume.shape[0] // 2]
     lo, hi = np.percentile(slice2d, (1, 99))
     if hi <= lo:
         hi, lo = (float(slice2d.max()), float(slice2d.min()))
     norm = np.clip((slice2d - lo) / (hi - lo + 1e-08), 0, 1)
-    img = Image.fromarray((norm * 255).astype(np.uint8))
-    img = img.resize((256, 256))
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    img.save(str(out_png))
+    Image.fromarray((norm * 255).astype(np.uint8)).resize((256, 256)).save(str(out_png))
     return out_png

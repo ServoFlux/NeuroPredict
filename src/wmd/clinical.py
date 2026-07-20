@@ -39,6 +39,5 @@ def make_clinical(etiology: int, rng: np.random.Generator | None=None) -> dict[s
         if field.kind == 'age':
             answers[field.name] = float(rng.integers(age_lo, age_hi))
         else:
-            p = field_p.get(field.name, baseline)
-            answers[field.name] = float(rng.random() < p)
+            answers[field.name] = float(rng.random() < field_p.get(field.name, baseline))
     return answers

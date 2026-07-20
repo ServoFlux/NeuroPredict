@@ -16,13 +16,9 @@ class WMDClassifier3D(nn.Module):
         self.pool = nn.AdaptiveMaxPool3d(1)
         self.classifier = nn.Sequential(nn.Flatten(), nn.Dropout(0.3), nn.Linear(64, 32), nn.ReLU(inplace=True), nn.Linear(32, num_classes))
     def embed(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        x = self.pool(x)
-        return torch.flatten(x, 1)
+        return torch.flatten(self.pool(self.features(x)), 1)
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        x = self.pool(x)
-        return self.classifier(x)
+        return self.classifier(self.pool(self.features(x)))
 IMAGE_EMBED_DIM = 64
 class MultimodalWMDClassifier(nn.Module):
     def __init__(self, num_clinical_features: int, num_classes: int=2, in_channels: int=1, clinical_embed_dim: int=16) -> None:
@@ -36,10 +32,7 @@ class MultimodalWMDClassifier(nn.Module):
     def image_embedding(self, volume: torch.Tensor) -> torch.Tensor:
         return torch.flatten(self.pool(self.features(volume)), 1)
     def forward(self, volume: torch.Tensor, clinical: torch.Tensor) -> torch.Tensor:
-        img = self.image_embedding(volume)
-        clin = self.clinical_encoder(clinical)
-        fused = torch.cat([img, clin], dim=1)
-        return self.head(fused)
+        return self.head(torch.cat([self.image_embedding(volume), self.clinical_encoder(clinical)], dim=1))
 def build_model(num_classes: int=2) -> WMDClassifier3D:
     return WMDClassifier3D(num_classes=num_classes)
 def build_multimodal_model(num_clinical_features: int, num_classes: int=2) -> MultimodalWMDClassifier:

@@ -7,8 +7,7 @@ from .config import PreprocessConfig
 NIFTI_SUFFIXES = ('.nii', '.nii.gz')
 DICOM_SUFFIXES = ('.dcm', '.ima')
 def _is_nifti(path: Path) -> bool:
-    name = path.name.lower()
-    return name.endswith('.nii') or name.endswith('.nii.gz')
+    return path.name.lower().endswith(NIFTI_SUFFIXES)
 def load_volume(path: str | Path) -> np.ndarray:
     path = Path(path)
     if not path.exists():
@@ -25,9 +24,7 @@ def load_volume(path: str | Path) -> np.ndarray:
         return _load_dicom_series(path.parent)
 def _load_nifti(path: Path) -> np.ndarray:
     import nibabel as nib
-    img = nib.load(str(path))
-    data = np.asarray(img.dataobj, dtype=np.float32)
-    data = np.squeeze(data)
+    data = np.squeeze(np.asarray(nib.load(str(path)).dataobj, dtype=np.float32))
     if data.ndim == 4:
         data = data[..., 0]
     if data.ndim != 3:
@@ -74,16 +71,11 @@ def median_filter_3d(volume: np.ndarray, size: int=3) -> np.ndarray:
     if size % 2 == 0:
         raise ValueError(f'median filter size must be odd, got {size}')
     pad = size // 2
+    d, h, w = volume.shape
     tensor = torch.from_numpy(np.ascontiguousarray(volume))[None, None].float()
     padded = F.pad(tensor, (pad,) * 6, mode='replicate')[0, 0]
-    neighbours = []
-    for dz in range(size):
-        for dy in range(size):
-            for dx in range(size):
-                neighbours.append(padded[dz:dz + volume.shape[0], dy:dy + volume.shape[1], dx:dx + volume.shape[2]])
-    stacked = torch.stack(neighbours, dim=0)
-    filtered = stacked.median(dim=0).values
-    return filtered.numpy().astype(np.float32)
+    neighbours = [padded[dz:dz + d, dy:dy + h, dx:dx + w] for dz in range(size) for dy in range(size) for dx in range(size)]
+    return torch.stack(neighbours, dim=0).median(dim=0).values.numpy().astype(np.float32)
 def preprocess_volume(volume: np.ndarray, config: PreprocessConfig | None=None) -> torch.Tensor:
     config = config or PreprocessConfig()
     volume = volume.astype(np.float32)
@@ -110,5 +102,4 @@ def _apply_intensity_norm(volume: np.ndarray, config: PreprocessConfig, mask: np
         return white_stripe_normalize(volume, mask)
     raise ValueError(f"Unknown intensity_norm '{mode}' (expected 'minmax', 'zscore', or 'whitestripe')")
 def load_and_preprocess(path: str | Path, config: PreprocessConfig | None=None) -> torch.Tensor:
-    volume = load_volume(path)
-    return preprocess_volume(volume, config)
+    return preprocess_volume(load_volume(path), config)

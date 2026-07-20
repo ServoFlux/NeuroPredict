@@ -26,12 +26,10 @@ def _fit(model: nn.Module, train_loader: DataLoader, val_loader: DataLoader, n_t
         running_loss = 0.0
         for batch in train_loader:
             if multimodal:
-                volumes, clinical, labels = batch
-                volumes, clinical, labels = (volumes.to(device), clinical.to(device), labels.to(device))
+                volumes, clinical, labels = (t.to(device) for t in batch)
                 logits = model(volumes, clinical)
             else:
-                volumes, labels = batch
-                volumes, labels = (volumes.to(device), labels.to(device))
+                volumes, labels = (t.to(device) for t in batch)
                 logits = model(volumes)
             optimizer.zero_grad()
             loss = criterion(logits, labels)
@@ -141,10 +139,8 @@ def main() -> None:
     args = _parse_args()
     config = TrainConfig(epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr, preprocess=PreprocessConfig())
     if args.multimodal:
-        model_path = args.model_path or str(DEFAULT_MULTIMODAL_MODEL_PATH)
-        train_multimodal(args.manifest, config=config, model_path=model_path)
+        train_multimodal(args.manifest, config=config, model_path=args.model_path or str(DEFAULT_MULTIMODAL_MODEL_PATH))
     else:
-        model_path = args.model_path or str(DEFAULT_MODEL_PATH)
-        train(args.manifest, config=config, model_path=model_path)
+        train(args.manifest, config=config, model_path=args.model_path or str(DEFAULT_MODEL_PATH))
 if __name__ == '__main__':
     main()
