@@ -14,6 +14,7 @@ models/*
 !models/.gitkeep
 # Keep the small real-data evaluation report (scientific results, not a large artifact)
 !models/performance_real.json
+!models/leakage_audit.json
 
 # Uploads / runtime
 webapp/uploads/

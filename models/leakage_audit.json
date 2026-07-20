@@ -1,0 +1,22 @@
+{
+  "n_train": 60,
+  "n_test": 110,
+  "image_model_test_auc": 0.7659950512548603,
+  "sites": [
+    "Amsterdam",
+    "Singapore",
+    "Utrecht"
+  ],
+  "baselines": {
+    "site_only": {
+      "test_auc": 0.531813361611877,
+      "train_cv_auc": 0.5532296650717703
+    },
+    "clinical_only": {
+      "test_auc": 0.5,
+      "train_cv_auc": null,
+      "note": "features are constant (not collected in this dataset)"
+    }
+  },
+  "verdict": "NO MEANINGFUL LEAKAGE: metadata-only baselines are near chance (0.5), so the image model is not relying on a scanner/site shortcut."
+}

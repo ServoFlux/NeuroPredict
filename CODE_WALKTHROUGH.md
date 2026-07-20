@@ -305,6 +305,54 @@ single live upload. It's the natural next step once we have multi-site scans
 scanner's brightness shading and put every scan on a common intensity scale
 (WhiteStripe), so the model learns disease — not which machine took the scan."*
 
+### Scanner/site leakage audit (`scripts/leakage_audit.py`)
+
+**Why this exists:** harmonization *reduces* scanner bias, but how do we *prove*
+the reported ROC-AUC reflects anatomy rather than a "which scanner" shortcut? Dr.
+Tohka's exact advice: compare the image model against a model that sees **only**
+the scanner/site metadata. If the metadata-only baseline scores nearly as high,
+the labels are correlated with (leaked through) the scanner and the headline
+number is partly fake.
+
+**What it does:** it trains simple logistic-regression baselines on the training
+manifest and evaluates them on the held-out test manifest — the *same* protocol
+as the image model — then prints a comparison:
+
+- **`site_only`** — one-hot of the three sites (Amsterdam / Singapore / Utrecht).
+- **`clinical_only`** — the questionnaire columns (all zero in the MICCAI data,
+  since those fields weren't collected there — so this is expected to sit at 0.5,
+  a useful sanity check that the number reporting is honest).
+
+It also reports each baseline's within-training 5-fold cross-validated AUC for
+stability and writes a JSON report to `models/leakage_audit.json`.
+
+**Result on the MICCAI WMH data:**
+
+| Model | Test ROC-AUC |
+|---|---|
+| Image CNN (shipped) | **0.766** |
+| Site-only baseline | 0.532 |
+| Clinical-only baseline | 0.500 |
+
+The metadata-only baselines are essentially at chance (0.5), so **there is no
+meaningful leakage** — the CNN's 0.77 comes from the brain images, not from
+guessing the scanner. That is the honest, defensible answer to the leakage
+question, and it's also the prerequisite that makes any future ComBat/metadata
+work trustworthy.
+
+Run it with:
+
+```bash
+python scripts/leakage_audit.py \
+  --train-manifest data/wmh_real/manifest_train/manifest.csv \
+  --test-manifest  data/wmh_real/manifest_test/manifest.csv
+```
+
+**One-line summary for judges:** *"To make sure the score isn't cheating, we
+trained a model on scanner/site labels alone — it scored 0.53 (basically a coin
+flip), while the image model scored 0.77, so the AI is reading the brain, not the
+barcode of the machine."*
+
 ### Salt-and-pepper noise, and the two ways we handle it
 
 **What it is:** "salt-and-pepper" (a.k.a. *impulse*) noise is scattered pure-white
