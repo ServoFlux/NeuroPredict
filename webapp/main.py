@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import os
 import shutil
 import sys
@@ -14,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / 'src'))
 from wmd.clinical import CATEGORY_ORDER, CLINICAL_FIELDS
-from wmd.config import DEFAULT_MULTIMODAL_MODEL_PATH, ETIOLOGY_LABELS, ETIOLOGY_NEXT_STEPS, RESEARCH_DISCLAIMER, assess_severity
+from wmd.config import DEFAULT_MULTIMODAL_MODEL_PATH, ETIOLOGY_LABELS, ETIOLOGY_NEXT_STEPS, MODELS_DIR, RESEARCH_DISCLAIMER, assess_severity
 from wmd.filmscan import grid_shape_for_depth, volume_from_contact_sheet
 from wmd.inference import MultimodalWMDPredictor
 WEBAPP_DIR = Path(__file__).resolve().parent
@@ -85,6 +86,31 @@ def health() -> dict[str, object]:
 @app.get('/', response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, 'index.html', {'disclaimer': RESEARCH_DISCLAIMER, 'model_loaded': predictor is not None, 'val_metrics': predictor.val_metrics if predictor else {}, 'clinical_groups': _clinical_groups_for_template(), 'latest_digitized': _latest_digitized})
+def _matrix_for_template(report: dict[str, object]) -> dict[str, object]:
+    matrix = report['confusion_matrix']
+    labels = [_pretty(name) for name in report['class_names']]
+    peak = max((max(row) for row in matrix), default=0) or 1
+    rows = [{'label': labels[i], 'total': sum(row), 'cells': [{'count': count, 'is_diagonal': i == j, 'intensity': round(count / peak, 3) if count else 0.0} for j, count in enumerate(row)]} for i, row in enumerate(matrix)]
+    return {'task': report['task'], 'labels': labels, 'rows': rows, 'n_samples': report['n_samples'], 'metrics': report['metrics']}
+def _read_report(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+def _load_performance() -> list[dict[str, object]] | None:
+    groups: list[dict[str, object]] = []
+    real = _read_report(MODELS_DIR / 'performance_real.json')
+    if real and 'detection' in real:
+        groups.append({'group': 'Real MRI — MICCAI WMH Challenge (held-out test)', 'note': real.get('note'), 'reports': [_matrix_for_template(real['detection'])]})
+    demo = _read_report(MODELS_DIR / 'performance.json')
+    if demo and 'detection' in demo and 'etiology' in demo:
+        groups.append({'group': 'Synthetic demo (pipeline check)', 'note': demo.get('note'), 'reports': [_matrix_for_template(demo['detection']), _matrix_for_template(demo['etiology'])]})
+    return groups or None
+@app.get('/performance', response_class=HTMLResponse)
+def performance(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, 'performance.html', {'disclaimer': RESEARCH_DISCLAIMER, 'performance': _load_performance()})
 def _empty_context(filename: str | None=None) -> dict[str, object]:
     return {'disclaimer': RESEARCH_DISCLAIMER, 'error': None, 'result': None, 'preview_url': None, 'overlay_url': None, 'explanation': None, 'attribution': None, 'answers_summary': [], 'filename': filename}
 def _run_prediction(saved_path: Path, answers: dict[str, float], filename: str, token: str) -> dict[str, object]:
