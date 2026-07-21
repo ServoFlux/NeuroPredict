@@ -33,7 +33,41 @@ later swap in real labeled data and train a real model.
 
 ---
 
-## Quickstart (demo, runs on CPU)
+## Run it yourself (no account, no token, no Devin needed)
+
+You can run the whole website on your own computer with **one command**. It works
+offline and does not depend on any hosted session.
+
+**macOS / Linux**
+```bash
+./run.sh
+```
+(the very first time, make it runnable once: `chmod +x run.sh`)
+
+**Windows** — just **double-click `run.bat`** (or run `run.bat` in a terminal).
+
+That single step does everything for you: it creates a private Python
+environment, installs the libraries, trains the small demo model the first time
+(a few minutes on a normal laptop, CPU only), then starts the site and opens
+your browser at **http://localhost:8000**. Leave the window open while you use
+it; press `Ctrl+C` to stop. Running it again later is instant (it reuses the
+setup and the trained model).
+
+> Requirement: **Python 3** must be installed. Get it from
+> [python.org/downloads](https://www.python.org/downloads/) (on Windows, tick
+> "Add Python to PATH" during install).
+
+### Or run it with Docker (zero Python setup)
+
+If you have Docker, you don't need Python at all:
+```bash
+docker compose up --build      # then open http://localhost:8000
+```
+(or `docker build -t neuropredict . && docker run -p 8000:8000 neuropredict`)
+
+---
+
+## Quickstart (manual steps, if you prefer)
 
 ```bash
 # 1. Create an environment and install dependencies
@@ -41,7 +75,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 2. Generate synthetic demo data + train a small demo model
-python scripts/train_demo.py        # writes models/wmd_cnn.pt
+python scripts/train_demo.py        # writes models/wmd_cnn.pt + wmd_multimodal.pt
 
 # 3. Launch the web app
 uvicorn webapp.main:app --port 8000

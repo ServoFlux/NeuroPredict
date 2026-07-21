@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+data/synthetic/
+models/*.pt
+webapp/static/previews/
+webapp/uploads/
+*.md
+.agents/
