@@ -15,6 +15,7 @@ models/*
 # Keep the small evaluation reports (scientific results, not large artifacts)
 !models/performance_real.json
 !models/performance.json
+!models/leakage_audit.json
 
 # Uploads / runtime
 webapp/uploads/
