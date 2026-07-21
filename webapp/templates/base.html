@@ -18,6 +18,7 @@
         </a>
         <nav class="site-nav">
             <a href="/" class="{{ 'active' if path == '/' else '' }}">Predict</a>
+            <a href="/performance" class="{{ 'active' if path.startswith('/performance') else '' }}">Model&nbsp;Performance</a>
             <a href="/digitizer" class="{{ 'active' if path.startswith('/digitizer') else '' }}">Archive&nbsp;Digitizer</a>
         </nav>
     </header>
