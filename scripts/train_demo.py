@@ -17,5 +17,8 @@ def main() -> None:
     print('\n== Training multimodal (MRI + clinical) model ==')
     mm_metrics = train_multimodal(manifest, config=config, model_path=DEFAULT_MULTIMODAL_MODEL_PATH)
     print(f'Multimodal validation metrics: {mm_metrics}')
+    print('\n== Evaluating on a held-out synthetic test set ==')
+    import evaluate_demo
+    evaluate_demo.main()
 if __name__ == '__main__':
     main()

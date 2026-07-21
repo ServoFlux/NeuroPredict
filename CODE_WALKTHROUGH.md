@@ -660,6 +660,28 @@ result. It's the glue connecting all the other files.
   metrics, grouped questions, and latest digitized result.
 - **`_empty_context`** (148–159) — a blank result-page context, reused everywhere.
 
+### `GET /performance` — the Model Performance page
+A dedicated page that answers the judge's key question *"how good is it, really?"*
+with **held-out** numbers, not training numbers:
+- `_read_report` loads a JSON report from `models/`; `_matrix_for_template` turns a
+  raw confusion matrix into display rows (pretty class names, per-cell colour
+  intensity, a green diagonal for correct predictions).
+- `_load_performance` gathers up to two groups:
+  1. **Real MRI — MICCAI WMH Challenge** from `models/performance_real.json`
+     (the honest headline: ROC-AUC ≈ 0.77, accuracy 0.67, on 110 real scans).
+  2. **Synthetic demo** from `models/performance.json` (a pipeline check: the
+     detection *and* the 6-way cause/etiology confusion matrices).
+- The page shows metric cards + a confusion matrix per model, and clearly labels
+  which block is real vs. synthetic so nothing is oversold. If no report exists it
+  shows a hint to run `python scripts/evaluate_demo.py`.
+
+The evaluation itself lives in **`src/wmd/evaluate.py`**: `evaluate_detection` and
+`evaluate_etiology` run each model over a manifest and build a confusion matrix +
+metrics (accuracy, ROC-AUC, and for detection sensitivity/specificity);
+`build_performance_report` bundles both. **`scripts/evaluate_demo.py`** generates a
+*fresh* synthetic test set (seed 1234, different from the training seed) so the
+models have genuinely never seen it, then writes `models/performance.json`.
+
 ### `_run_prediction` (162–231) — the shared engine
 Both the normal upload and the digitizer funnel through this so they produce the
 **identical** result page:
